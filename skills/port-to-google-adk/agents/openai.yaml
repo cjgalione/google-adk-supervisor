@@ -1,0 +1,4 @@
+interface:
+  display_name: "Port to Google ADK"
+  short_description: "Translate supervisor apps to ADK with Braintrust"
+  default_prompt: "Use $port-to-google-adk to port this existing supervisor project to Google ADK while keeping Braintrust tracing and remote eval compatibility."

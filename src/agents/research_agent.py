@@ -1,0 +1,71 @@
+"""Research agent with Tavily web search capabilities."""
+
+import os
+from typing import Any, Callable
+
+from google.adk import Agent
+from tavily import TavilyClient
+
+from src.config import DEFAULT_RESEARCH_AGENT_PROMPT
+
+
+def _get_tavily_client() -> TavilyClient:
+    api_key = os.environ.get("TAVILY_API_KEY")
+    if not api_key:
+        raise RuntimeError("TAVILY_API_KEY is not set")
+    return TavilyClient(api_key=api_key)
+
+
+def tavily_search(query: str, max_results: int = 3) -> str:
+    """Search the web with Tavily and return summarized results with links."""
+    limited_max_results = max(1, min(max_results, 5))
+    response: dict[str, Any] = _get_tavily_client().search(
+        query=query,
+        max_results=limited_max_results,
+        include_answer=True,
+        include_raw_content=False,
+    )
+
+    lines: list[str] = []
+    answer = response.get("answer")
+    if answer:
+        lines.append(f"Answer: {answer}")
+
+    results = response.get("results", []) or []
+    if not results:
+        if lines:
+            return "\n\n".join(lines)
+        return "No search results found."
+
+    for i, item in enumerate(results, start=1):
+        title = str(item.get("title", "")).strip()
+        url = str(item.get("url", "")).strip()
+        content = str(item.get("content", "")).strip()
+        block = (
+            f"{i}. {title or 'Untitled'}\n"
+            f"URL: {url or 'N/A'}\n"
+            f"Summary: {content or 'N/A'}"
+        )
+        lines.append(block)
+
+    return "\n\n".join(lines)
+
+
+def get_research_agent(
+    system_prompt: str | None = None,
+    model: str = "gemini-2.0-flash-lite",
+    extra_tools: list[Callable[..., Any]] | None = None,
+) -> Agent:
+    """Create the research agent with optional custom prompt and model."""
+    prompt = system_prompt if system_prompt is not None else DEFAULT_RESEARCH_AGENT_PROMPT
+
+    tools: list[Callable[..., Any]] = [tavily_search]
+    if extra_tools:
+        tools.extend(extra_tools)
+
+    return Agent(
+        name="ResearchAgent",
+        model=model,
+        instruction=prompt,
+        tools=tools,
+    )
