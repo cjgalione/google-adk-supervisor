@@ -6,15 +6,35 @@ import json
 import uuid
 from typing import Any
 
+from braintrust import SpanTypeAttribute, start_span
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+
+from src.tracing import get_trace_profile
 
 
 def extract_query_from_input(input_payload: dict[str, Any]) -> str:
     """Extract a user query from eval input payloads."""
     if "query" in input_payload and input_payload["query"]:
         return str(input_payload["query"])
+
+    new_message = input_payload.get("new_message")
+    if isinstance(new_message, dict):
+        parts = new_message.get("parts", [])
+        if isinstance(parts, list):
+            text_parts: list[str] = []
+            for part in parts:
+                if isinstance(part, dict):
+                    text = part.get("text")
+                    if isinstance(text, str) and text.strip():
+                        text_parts.append(text.strip())
+            if text_parts:
+                return "\n".join(text_parts)
+
+        content = new_message.get("content")
+        if isinstance(content, str) and content.strip():
+            return content
 
     messages = input_payload.get("messages", [])
     if isinstance(messages, list) and messages:
@@ -120,6 +140,18 @@ def _serialize_event(event: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _tool_calls_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    tool_calls: list[dict[str, Any]] = []
+    for message in messages:
+        raw = message.get("tool_calls")
+        if not isinstance(raw, list):
+            continue
+        for tc in raw:
+            if isinstance(tc, dict):
+                tool_calls.append(tc)
+    return tool_calls
+
+
 async def run_adk_agent(
     *,
     agent: Any,
@@ -141,21 +173,59 @@ async def run_adk_agent(
     messages: list[dict[str, Any]] = [{"role": "user", "content": query}]
     final_output = ""
 
-    async for event in runner.run_async(user_id=uid, session_id=sid, new_message=user_msg):
-        event_messages = _serialize_event(event)
-        messages.extend(event_messages)
+    trace_profile = get_trace_profile()
 
-        if hasattr(event, "is_final_response") and event.is_final_response():
-            content = getattr(event, "content", None)
-            parts = getattr(content, "parts", None) if content is not None else None
-            if parts:
-                text_parts = [
-                    _part_text(part).strip()
-                    for part in parts
-                    if _part_text(part).strip()
-                ]
-                if text_parts:
-                    final_output = "\n".join(text_parts)
+    async def _run_loop() -> None:
+        nonlocal final_output
+        async for event in runner.run_async(user_id=uid, session_id=sid, new_message=user_msg):
+            event_messages = _serialize_event(event)
+            messages.extend(event_messages)
+
+            if trace_profile == "lean":
+                for tc in _tool_calls_from_messages(event_messages):
+                    tool_name = str(tc.get("name", "") or "")
+                    if not tool_name:
+                        continue
+                    with start_span(
+                        name=f"tool_routing_decision [{tool_name}]",
+                        type=SpanTypeAttribute.TOOL,
+                        input=_safe_json(tc.get("args", {})),
+                        metadata={
+                            "tool_name": tool_name,
+                            "source": "llm_tool_selection",
+                        },
+                    ):
+                        pass
+
+            if hasattr(event, "is_final_response") and event.is_final_response():
+                content = getattr(event, "content", None)
+                parts = getattr(content, "parts", None) if content is not None else None
+                if parts:
+                    text_parts = [
+                        _part_text(part).strip()
+                        for part in parts
+                        if _part_text(part).strip()
+                    ]
+                    if text_parts:
+                        final_output = "\n".join(text_parts)
+
+    if trace_profile == "lean":
+        with start_span(
+            name=f"invocation [{app_name}]",
+            type=SpanTypeAttribute.TASK,
+            input={"new_message": {"role": "user", "parts": [{"text": query}]}},
+            metadata={"user_id": uid, "session_id": sid},
+        ) as invocation_span:
+            with start_span(
+                name="llm_response_generation",
+                type=SpanTypeAttribute.LLM,
+                input={"query": query, "agent_name": str(getattr(agent, "name", "") or "")},
+            ) as llm_span:
+                await _run_loop()
+                llm_span.log(output={"final_output": final_output})
+            invocation_span.log(output={"final_output": final_output})
+    else:
+        await _run_loop()
 
     if final_output and not any(
         m.get("role") == "assistant" and m.get("content") for m in messages

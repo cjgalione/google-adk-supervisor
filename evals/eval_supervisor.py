@@ -13,7 +13,6 @@ if str(project_root) not in sys.path:
 
 from braintrust import Eval, init_dataset, init_function  # noqa: E402
 from braintrust.oai import wrap_openai  # noqa: E402
-from braintrust_adk import setup_adk  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 from openai import OpenAI  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
@@ -34,6 +33,7 @@ from src.helpers import (  # noqa: E402
     extract_query_from_input,
     run_adk_agent,
 )
+from src.tracing import configure_adk_tracing  # noqa: E402
 
 load_dotenv()
 apply_parameter_patch()
@@ -41,7 +41,7 @@ apply_parameter_patch()
 DEFAULT_BRAINTRUST_PROJECT = "google-adk-supervisor"
 DEFAULT_BRAINTRUST_DATASET = "Google ADK Supervisor Dataset"
 
-setup_adk(
+configure_adk_tracing(
     api_key=os.environ.get("BRAINTRUST_API_KEY"),
     project_id=os.environ.get("BRAINTRUST_PROJECT_ID"),
     project_name=os.environ.get("BRAINTRUST_PROJECT", DEFAULT_BRAINTRUST_PROJECT),
@@ -168,6 +168,16 @@ def _infer_agents_from_tool_name(tool_name: str) -> set[str]:
     return agents
 
 
+def _infer_agents_from_span_name(span_name: str) -> set[str]:
+    lowered = span_name.lower()
+    agents: set[str] = set()
+    if "researchagent" in lowered:
+        agents.add("ResearchAgent")
+    if "mathagent" in lowered:
+        agents.add("MathAgent")
+    return agents
+
+
 async def _collect_agents_called(trace: Any, output: Any) -> list[str]:
     """Infer called agents from trace spans and serialized tool call messages."""
     found: set[str] = set()
@@ -184,6 +194,7 @@ async def _collect_agents_called(trace: Any, output: Any) -> list[str]:
         if span_name in {"MathAgent", "ResearchAgent"}:
             found.add(span_name)
         else:
+            found.update(_infer_agents_from_span_name(span_name))
             found.update(_infer_agents_from_tool_name(lowered))
 
     if isinstance(output, dict):

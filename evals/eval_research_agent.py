@@ -13,15 +13,15 @@ if str(project_root) not in sys.path:
 
 from autoevals import LLMClassifier  # noqa: E402
 from braintrust import Eval  # noqa: E402
-from braintrust_adk import setup_adk  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
 from evals.parameters import ResearchAgentPromptParam, ResearchModelParam  # noqa: E402
 from src.agents.research_agent import get_research_agent  # noqa: E402
 from src.helpers import run_adk_agent  # noqa: E402
+from src.tracing import configure_adk_tracing  # noqa: E402
 
 load_dotenv()
-setup_adk(
+configure_adk_tracing(
     api_key=os.environ.get("BRAINTRUST_API_KEY"),
     project_id=os.environ.get("BRAINTRUST_PROJECT_ID"),
     project_name=os.environ.get("BRAINTRUST_PROJECT", "google-adk-supervisor"),

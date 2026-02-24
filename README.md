@@ -31,7 +31,10 @@ Required keys:
 - `GOOGLE_API_KEY`
 - `TAVILY_API_KEY`
 - `BRAINTRUST_API_KEY` (if tracing/evals)
-- `OPENAI_API_KEY` (used by judge scorers and question generation scripts)
+- `OPENAI_API_KEY` (used by judge scorers)
+- Optional: `TRACE_PROFILE=full|lean` (default `full`)
+  - `full`: existing `braintrust_adk` auto-instrumentation (verbose)
+  - `lean`: explicit app spans only (invocation, handoff, llm_response_generation, tool_routing_decision)
 
 3. Run local chat:
 
@@ -69,6 +72,27 @@ modal serve src/eval_server.py
 ```
 
 Then connect the endpoint from Braintrust Playground remote eval UI.
+
+## Interactive Queries On Modal
+
+After deploying `src/eval_server.py`, you can query the live multi-agent app directly:
+
+- Browser UI: `https://<your-modal-url>/interactive`
+- JSON API: `POST https://<your-modal-url>/interactive/query`
+
+Example:
+
+```bash
+curl -X POST "https://<your-modal-url>/interactive/query" \
+  -H "content-type: application/json" \
+  -d '{"query":"What is 12*9?","workflow_name":"google-adk-supervisor-interactive"}'
+```
+
+Response includes:
+
+- `final_output` (assistant answer)
+- `messages` (serialized user/assistant/tool events)
+- trace logging to Braintrust via ADK instrumentation
 
 ## Project Layout
 

@@ -4,7 +4,6 @@ import asyncio
 import getpass
 import os
 
-from braintrust_adk import setup_adk
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
@@ -13,6 +12,7 @@ from rich.text import Text
 
 from src.agent_graph import get_supervisor
 from src.helpers import run_adk_agent
+from src.tracing import configure_adk_tracing
 
 DEFAULT_BRAINTRUST_PROJECT = "google-adk-supervisor"
 
@@ -28,7 +28,7 @@ async def _run_chat() -> None:
     _set_if_undefined("TAVILY_API_KEY")
 
     if os.environ.get("BRAINTRUST_API_KEY"):
-        setup_adk(
+        configure_adk_tracing(
             api_key=os.environ.get("BRAINTRUST_API_KEY"),
             project_id=os.environ.get("BRAINTRUST_PROJECT_ID"),
             project_name=os.environ.get("BRAINTRUST_PROJECT", DEFAULT_BRAINTRUST_PROJECT),

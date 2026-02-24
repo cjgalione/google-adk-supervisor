@@ -11,7 +11,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from braintrust_adk import setup_adk
 from dotenv import load_dotenv
 
 # Add project root to path so local imports work when run from scripts/.
@@ -22,6 +21,7 @@ if str(project_root) not in sys.path:
 from src.agent_graph import get_supervisor
 from src.config import AgentConfig
 from src.helpers import run_adk_agent
+from src.tracing import configure_adk_tracing
 
 DEFAULT_PROJECT = "google-adk-supervisor"
 DEFAULT_SUPERVISOR_MODEL = "gemini-2.0-flash-lite"
@@ -76,7 +76,7 @@ async def _run(args: argparse.Namespace) -> None:
             raise RuntimeError(
                 "BRAINTRUST_API_KEY is missing. Set it in environment/.env or use --no-braintrust."
             )
-        setup_adk(
+        configure_adk_tracing(
             api_key=api_key,
             project_id=os.environ.get("BRAINTRUST_PROJECT_ID"),
             project_name=args.project,

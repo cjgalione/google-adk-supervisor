@@ -48,6 +48,7 @@ def braintrust_eval_server():
     from braintrust.devserver.server import create_app
 
     import evals
+    from src.tracing import configure_adk_tracing
 
     # Find all eval files in the evals directory
     # In Modal, the evals package is mounted and importable
@@ -72,8 +73,13 @@ def braintrust_eval_server():
 
     print(f"Loaded {len(evaluators)} evaluator(s): {[e.eval_name for e in evaluators]}")
 
-    # Use Braintrust's built-in create_app which handles all the setup
-    # This creates a Starlette ASGI app with routes, middleware, etc.
+    configure_adk_tracing(
+        api_key=os.environ.get("BRAINTRUST_API_KEY"),
+        project_id=os.environ.get("BRAINTRUST_PROJECT_ID"),
+        project_name=os.environ.get("BRAINTRUST_PROJECT", "google-adk-supervisor"),
+    )
+
+    # Use Braintrust's built-in create_app which handles all the setup.
     return create_app(evaluators, org_name=None)
 
 
