@@ -8,3 +8,4 @@ rich
 autoevals
 modal
 fastapi[standard]
+pint
