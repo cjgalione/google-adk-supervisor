@@ -7,7 +7,7 @@ on:
       num_questions:
         description: "Number of questions to generate for this manual run"
         required: false
-        default: "5"
+        default: "100"
 
 jobs:
   run-queries:
@@ -28,11 +28,11 @@ jobs:
 
       - name: Run queries
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
-          BRAINTRUST_PROJECT: openai-agent-sdk-supervisor
+          BRAINTRUST_PROJECT: google-adk-supervisor
           BRAINTRUST_ORG_NAME: Braintrust Demos
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-          NUM_QUESTIONS: ${{ github.event.inputs.num_questions || '25' }}
+          NUM_QUESTIONS: ${{ github.event.inputs.num_questions || '100' }}
         run: |
           uv run python scripts/run_queries.py --num-questions "$NUM_QUESTIONS"

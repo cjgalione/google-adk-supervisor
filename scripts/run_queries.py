@@ -10,9 +10,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from braintrust_adk import setup_adk
 from dotenv import load_dotenv
-from openai import OpenAI
+from google import genai
 
 DEFAULT_BRAINTRUST_PROJECT = "google-adk-supervisor"
 
@@ -23,24 +22,55 @@ if str(project_root) not in sys.path:
 
 from src.config import AgentConfig
 from src.helpers import run_adk_agent
+from src.tracing import configure_adk_tracing
 
 load_dotenv()
 
 MODEL_POOL = ["gemini-2.0-flash-lite"]
+QUESTION_GENERATOR_MODEL = "gemini-2.0-flash-lite"
+
+QUESTION_BANK = [
+    "What is 37 * 24?",
+    "Who won the first modern Olympic Games and in what year?",
+    "If a supernova releases 10^44 joules, how many 60W lightbulb-hours is that?",
+    "What's the capital of Japan and what is 18% of 250?",
+    "Hey, can you help me quickly estimate 15% tip on $86.40?",
+    "When was the Eiffel Tower completed?",
+    "Compute (1250 / 5) - 73.",
+    "I'm frustrated. Just tell me if 144 divided by 12 is actually 11 or 12.",
+    "What is the population of Canada and what is 2% of that number?",
+    "Convert 10^6 joules to horsepower-seconds.",
+    "What is the square root of 2025?",
+    "Can you summarize what a quasar is in one sentence?",
+    "If GDP is $2.1T and growth is 3.2%, what is the increase?",
+    "Who discovered penicillin and in what year?",
+    "What is (48 + 72) / 6?",
+]
 
 
-def _openai_client() -> OpenAI:
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("Missing OPENAI_API_KEY in environment")
-    return OpenAI(api_key=api_key)
+def _extract_json_array(text: str) -> list[str]:
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if len(lines) >= 3 and lines[-1].strip() == "```":
+            text = "\n".join(lines[1:-1]).strip()
+            if text.startswith("json"):
+                text = text[4:].strip()
+
+    parsed = json.loads(text)
+    if not isinstance(parsed, list) or not all(isinstance(q, str) for q in parsed):
+        raise RuntimeError("Question generator did not return a JSON array of strings")
+    return parsed
 
 
 def generate_questions(num_questions: int, seed: Optional[int] = None) -> list[str]:
-    """Generate realistic, varied questions with natural language variation."""
+    """Generate realistic, varied questions with Gemini."""
     rng = random.Random(seed)
-    client = _openai_client()
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("Missing GOOGLE_API_KEY in environment")
 
+    client = genai.Client(api_key=api_key)
     prompt = f"""Generate exactly {num_questions} realistic user questions that test an AI multi-agent system.
 
 Create a diverse mix of:
@@ -54,23 +84,26 @@ Output requirements:
 - No markdown, no explanation
 - Keep each question under 200 characters
 """
-
-    response = client.responses.create(
-        model="gpt-4o-mini",
-        input=[{"role": "user", "content": prompt}],
+    response = client.models.generate_content(
+        model=QUESTION_GENERATOR_MODEL,
+        contents=prompt,
     )
-    text = response.output_text.strip()
-
+    text = (response.text or "").strip()
     try:
-        questions = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Question generator returned non-JSON output: {text[:300]}") from exc
-
-    if not isinstance(questions, list) or not all(isinstance(q, str) for q in questions):
-        raise RuntimeError("Question generator did not return a JSON array of strings")
-
-    rng.shuffle(questions)
-    return questions[:num_questions]
+        questions = _extract_json_array(text)
+        rng.shuffle(questions)
+        return questions[:num_questions]
+    except Exception:
+        questions = QUESTION_BANK.copy()
+        rng.shuffle(questions)
+        if num_questions <= len(questions):
+            return questions[:num_questions]
+        out: list[str] = []
+        while len(out) < num_questions:
+            remaining = num_questions - len(out)
+            out.extend(questions[:remaining])
+            rng.shuffle(questions)
+        return out
 
 
 async def run_question(question: str) -> tuple[str, bool]:
@@ -158,7 +191,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if os.environ.get("BRAINTRUST_API_KEY"):
-        setup_adk(
+        configure_adk_tracing(
             api_key=os.environ.get("BRAINTRUST_API_KEY"),
             project_id=os.environ.get("BRAINTRUST_PROJECT_ID"),
             project_name=os.environ.get("BRAINTRUST_PROJECT", DEFAULT_BRAINTRUST_PROJECT),
