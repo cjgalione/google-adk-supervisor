@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import random
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -63,6 +64,43 @@ def _extract_json_array(text: str) -> list[str]:
     return parsed
 
 
+def _fallback_questions(num_questions: int, rng: random.Random) -> list[str]:
+    questions = QUESTION_BANK.copy()
+    rng.shuffle(questions)
+    if num_questions <= len(questions):
+        return questions[:num_questions]
+    out: list[str] = []
+    while len(out) < num_questions:
+        remaining = num_questions - len(out)
+        out.extend(questions[:remaining])
+        rng.shuffle(questions)
+    return out
+
+
+def _is_resource_exhausted_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "resource_exhausted" in text or "quota exceeded" in text or "error code 429" in text
+
+
+def _is_hard_quota_exhausted(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "generaterequestsperday" in text or "limit: 0" in text
+
+
+def _retry_delay_seconds(exc: Exception) -> float | None:
+    text = str(exc)
+
+    m = re.search(r"Please retry in ([0-9]+(?:\.[0-9]+)?)s", text, flags=re.IGNORECASE)
+    if m:
+        return float(m.group(1))
+
+    m = re.search(r"'retryDelay': '([0-9]+)s'", text)
+    if m:
+        return float(m.group(1))
+
+    return None
+
+
 def generate_questions(num_questions: int, seed: Optional[int] = None) -> list[str]:
     """Generate realistic, varied questions with Gemini."""
     rng = random.Random(seed)
@@ -84,29 +122,43 @@ Output requirements:
 - No markdown, no explanation
 - Keep each question under 200 characters
 """
-    response = client.models.generate_content(
-        model=QUESTION_GENERATOR_MODEL,
-        contents=prompt,
-    )
-    text = (response.text or "").strip()
     try:
+        response = client.models.generate_content(
+            model=QUESTION_GENERATOR_MODEL,
+            contents=prompt,
+        )
+        text = (response.text or "").strip()
         questions = _extract_json_array(text)
         rng.shuffle(questions)
         return questions[:num_questions]
     except Exception:
-        questions = QUESTION_BANK.copy()
-        rng.shuffle(questions)
-        if num_questions <= len(questions):
-            return questions[:num_questions]
-        out: list[str] = []
-        while len(out) < num_questions:
-            remaining = num_questions - len(out)
-            out.extend(questions[:remaining])
-            rng.shuffle(questions)
-        return out
+        return _fallback_questions(num_questions=num_questions, rng=rng)
 
 
-async def run_question(question: str) -> tuple[str, bool]:
+def _quota_preflight_ok() -> tuple[bool, str]:
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        return False, "Missing GOOGLE_API_KEY in environment"
+
+    client = genai.Client(api_key=api_key)
+    try:
+        client.models.generate_content(
+            model=QUESTION_GENERATOR_MODEL,
+            contents="Reply with exactly: OK",
+        )
+        return True, ""
+    except Exception as exc:
+        if _is_hard_quota_exhausted(exc):
+            return False, str(exc)
+        return True, ""
+
+
+async def run_question(
+    question: str,
+    *,
+    max_retries: int,
+    base_retry_seconds: float,
+) -> tuple[str, bool, bool]:
     """Run one question through the supervisor with a random model assignment."""
     from src.agent_graph import get_supervisor
 
@@ -118,20 +170,45 @@ async def run_question(question: str) -> tuple[str, bool]:
     )
     supervisor = get_supervisor(config=config, force_rebuild=True)
 
-    try:
-        result = await run_adk_agent(
-            agent=supervisor,
-            query=question,
-            app_name="google-adk-supervisor-batch",
-        )
-        print(f"✅ {question[:80]} -> {str(result.get('final_output', ''))[:80]}")
-        return question, True
-    except Exception as exc:
-        print(f"❌ {question[:80]} -> {exc}")
-        return question, False
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            result = await run_adk_agent(
+                agent=supervisor,
+                query=question,
+                app_name="google-adk-supervisor-batch",
+            )
+            print(f"✅ {question[:80]} -> {str(result.get('final_output', ''))[:80]}")
+            return question, True, False
+        except Exception as exc:
+            if not _is_resource_exhausted_error(exc):
+                print(f"❌ {question[:80]} -> {exc}")
+                return question, False, False
+
+            if _is_hard_quota_exhausted(exc):
+                print(f"⏹️ {question[:80]} -> hard quota exhausted ({exc})")
+                return question, False, True
+
+            if attempt > max_retries:
+                print(f"❌ {question[:80]} -> exhausted retries ({exc})")
+                return question, False, False
+
+            suggested = _retry_delay_seconds(exc)
+            backoff = base_retry_seconds * (2 ** (attempt - 1))
+            sleep_s = max(suggested or 0.0, backoff)
+            print(f"⏳ {question[:80]} -> retrying in {sleep_s:.1f}s after quota error")
+            await asyncio.sleep(sleep_s)
 
 
 async def main_async(args: argparse.Namespace) -> None:
+    if args.quota_preflight:
+        ok, reason = _quota_preflight_ok()
+        if not ok:
+            print("Hard quota appears exhausted; skipping this batch run.")
+            print(reason)
+            return
+
     num_questions = args.num_questions if args.num_questions is not None else random.randint(1, 100)
     questions = generate_questions(num_questions=num_questions, seed=args.seed)
 
@@ -142,15 +219,34 @@ async def main_async(args: argparse.Namespace) -> None:
 
     successes = 0
     failures = 0
+    hard_quota_stop = False
 
     for i in range(0, len(questions), args.concurrency):
+        if hard_quota_stop:
+            break
         batch = questions[i : i + args.concurrency]
-        results = await asyncio.gather(*(run_question(q) for q in batch))
-        for _, ok in results:
+        results = await asyncio.gather(
+            *(
+                run_question(
+                    q,
+                    max_retries=args.max_retries,
+                    base_retry_seconds=args.base_retry_seconds,
+                )
+                for q in batch
+            )
+        )
+        for _, ok, hard_stop in results:
             if ok:
                 successes += 1
             else:
                 failures += 1
+            if hard_stop:
+                hard_quota_stop = True
+        if hard_quota_stop:
+            print("Hard quota exhausted; stopping remaining questions to avoid repeated 429s.")
+            break
+        if args.inter_question_delay_seconds > 0:
+            await asyncio.sleep(args.inter_question_delay_seconds)
         print()
 
     print("=" * 80)
@@ -168,8 +264,8 @@ def main() -> None:
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=int(os.environ.get("CONCURRENCY", "3")),
-        help="Number of concurrent questions to process (default: 3)",
+        default=int(os.environ.get("CONCURRENCY", "1")),
+        help="Number of concurrent questions to process (default: 1)",
     )
     parser.add_argument(
         "--seed",
@@ -187,6 +283,30 @@ def main() -> None:
         "--fail-on-error",
         action="store_true",
         help="Exit non-zero if any request fails",
+    )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=int(os.environ.get("MAX_RETRIES", "3")),
+        help="Max retries for transient quota errors (default: 3)",
+    )
+    parser.add_argument(
+        "--base-retry-seconds",
+        type=float,
+        default=float(os.environ.get("BASE_RETRY_SECONDS", "15")),
+        help="Base retry delay used for exponential backoff (default: 15)",
+    )
+    parser.add_argument(
+        "--inter-question-delay-seconds",
+        type=float,
+        default=float(os.environ.get("INTER_QUESTION_DELAY_SECONDS", "2")),
+        help="Delay between processed batches to reduce burst rate (default: 2)",
+    )
+    parser.add_argument(
+        "--quota-preflight",
+        action=argparse.BooleanOptionalAction,
+        default=os.environ.get("QUOTA_PREFLIGHT", "1") != "0",
+        help="Run a lightweight Gemini call before batch and skip run if daily quota is exhausted",
     )
     args = parser.parse_args()
 

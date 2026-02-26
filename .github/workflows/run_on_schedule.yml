@@ -34,5 +34,9 @@ jobs:
           BRAINTRUST_ORG_NAME: Braintrust Demos
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           NUM_QUESTIONS: ${{ github.event.inputs.num_questions || '100' }}
+          CONCURRENCY: 1
+          MAX_RETRIES: 3
+          BASE_RETRY_SECONDS: 15
+          INTER_QUESTION_DELAY_SECONDS: 2
         run: |
           uv run python scripts/run_queries.py --num-questions "$NUM_QUESTIONS"
