@@ -10,8 +10,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.text import Text
 
-from src.agent_graph import get_supervisor
-from src.helpers import run_adk_agent
+from src.agent_graph import get_supervisor, run_supervisor_with_critic
 from src.tracing import configure_adk_tracing
 
 DEFAULT_BRAINTRUST_PROJECT = "google-adk-supervisor"
@@ -57,8 +56,8 @@ async def _run_chat() -> None:
             continue
 
         with console.status("[bold blue]Processing...", spinner="dots"):
-            run_result = await run_adk_agent(
-                agent=supervisor,
+            run_result = await run_supervisor_with_critic(
+                supervisor=supervisor,
                 query=user_input,
                 app_name="google-adk-supervisor-local",
             )
