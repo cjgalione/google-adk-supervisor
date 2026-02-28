@@ -5,6 +5,7 @@ A multi-agent supervisor system built with Google ADK that routes user tasks bet
 - `ResearchAgent` (Tavily-backed web search)
 - `MathAgent` (arithmetic tools)
 - `Supervisor Agent` (routing + synthesis)
+- `CriticAgent` (post-response delegation/tool-use validator)
 
 This repository is a near-structure translation of the `openai-agent-sdk-supervisor` project, preserving:
 
@@ -41,6 +42,28 @@ Required keys:
 ```bash
 python -m src.local_runner
 ```
+
+## Architecture
+
+```mermaid
+flowchart TD
+    U["User Query"] --> S["SupervisorAgent (ADK)"]
+    S -->|delegate_to_research_agent| R["ResearchAgent"]
+    S -->|delegate_to_math_agent| M["MathAgent"]
+    R -->|request_math_subtask (optional)| M
+    M -->|request_research_subtask (optional)| R
+    S --> C["CriticAgent"]
+    C -->|compliant=true| O["Return final_output + messages"]
+    C -->|compliant=false| X["Corrective action"]
+    X -->|delegate_research/delegate_math/retry_with_instruction| S
+    X --> C
+```
+
+Runtime notes:
+
+- Handoff spans remain explicit and stable: `handoff [ResearchAgent]`, `handoff [MathAgent]`.
+- Critic validation is in-loop before final return, with `critic [CriticAgent]` task spans.
+- Returned payload contract includes `final_output` and `messages`.
 
 ## Evals
 
@@ -97,6 +120,7 @@ Response includes:
 ## Project Layout
 
 - `src/agents/` - supervisor + specialist agent construction
+- `src/agents/critic_agent.py` - critic agent prompt + construction
 - `src/helpers.py` - ADK run loop + event serialization into eval message schema
 - `evals/` - Braintrust eval tasks and scorers
 - `src/eval_server.py` - Modal ASGI remote eval server
@@ -104,5 +128,5 @@ Response includes:
 
 ## Notes
 
-- The output contract remains `{"messages": [...]}` for scorer compatibility.
+- The output contract remains `{"final_output": str, "messages": [...]}` for scorer compatibility and UI.
 - Routing inference relies on span/tool-call names (`research`, `math`, `delegate_to_*`, `tavily_search`, arithmetic tool names).

@@ -18,9 +18,8 @@ project_root = Path(__file__).resolve().parents[1]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.agent_graph import get_supervisor
+from src.agent_graph import get_supervisor, run_supervisor_with_critic
 from src.config import AgentConfig
-from src.helpers import run_adk_agent
 from src.tracing import configure_adk_tracing
 
 DEFAULT_PROJECT = "google-adk-supervisor"
@@ -89,8 +88,8 @@ async def _run(args: argparse.Namespace) -> None:
     )
     supervisor = get_supervisor(config=config, force_rebuild=True)
 
-    result = await run_adk_agent(
-        agent=supervisor,
+    result = await run_supervisor_with_critic(
+        supervisor=supervisor,
         query=query,
         app_name=args.workflow_name,
     )

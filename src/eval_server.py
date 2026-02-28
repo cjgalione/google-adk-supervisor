@@ -58,8 +58,7 @@ def braintrust_eval_server():
     from starlette.routing import Route
 
     import evals
-    from src.agents.deep_agent import get_supervisor
-    from src.helpers import run_adk_agent
+    from src.agents.deep_agent import get_supervisor, run_supervisor_with_critic
     from src.tracing import configure_adk_tracing
 
     # Find all eval files in the evals directory
@@ -157,8 +156,8 @@ def braintrust_eval_server():
 
         workflow_name = str(payload.get("workflow_name", "google-adk-supervisor-interactive")).strip()
 
-        run_result = await run_adk_agent(
-            agent=supervisor,
+        run_result = await run_supervisor_with_critic(
+            supervisor=supervisor,
             query=query,
             app_name=workflow_name or "google-adk-supervisor-interactive",
         )

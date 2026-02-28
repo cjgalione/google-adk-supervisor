@@ -22,7 +22,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from src.config import AgentConfig
-from src.helpers import run_adk_agent
+from src.agent_graph import run_supervisor_with_critic
 from src.tracing import configure_adk_tracing
 
 load_dotenv()
@@ -174,8 +174,8 @@ async def run_question(
     while True:
         attempt += 1
         try:
-            result = await run_adk_agent(
-                agent=supervisor,
+            result = await run_supervisor_with_critic(
+                supervisor=supervisor,
                 query=question,
                 app_name="google-adk-supervisor-batch",
             )

@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Literal
@@ -27,12 +28,9 @@ from evals.parameters import (  # noqa: E402
     SupervisorModelParam,
     SystemPromptParam,
 )
-from src.agents.deep_agent import get_supervisor  # noqa: E402
+from src.agents.deep_agent import get_supervisor, run_supervisor_with_critic  # noqa: E402
 from src.config import AgentConfig  # noqa: E402
-from src.helpers import (  # noqa: E402
-    extract_query_from_input,
-    run_adk_agent,
-)
+from src.helpers import extract_query_from_input  # noqa: E402
 from src.tracing import configure_adk_tracing  # noqa: E402
 
 load_dotenv()
@@ -72,7 +70,7 @@ def unwrap_parameters(params: dict) -> dict:
     return result
 
 
-async def run_supervisor_task(input: dict, hooks: Any = None) -> dict[str, list]:
+async def run_supervisor_task(input: dict, hooks: Any = None) -> dict[str, Any]:
     """Run a single task through the supervisor and return serialized messages."""
     try:
         params = hooks.parameters if hooks and hasattr(hooks, "parameters") else {}
@@ -82,8 +80,8 @@ async def run_supervisor_task(input: dict, hooks: Any = None) -> dict[str, list]
         supervisor = get_supervisor(config=config, force_rebuild=True)
         query = extract_query_from_input(input)
 
-        run_result = await run_adk_agent(
-            agent=supervisor,
+        run_result = await run_supervisor_with_critic(
+            supervisor=supervisor,
             query=query,
             app_name="google-adk-supervisor-eval-supervisor",
         )
@@ -97,11 +95,137 @@ async def run_supervisor_task(input: dict, hooks: Any = None) -> dict[str, list]
                 }
             )
 
-        return {"messages": serialized_messages}
+        return {
+            "final_output": run_result.get("final_output", ""),
+            "messages": serialized_messages,
+        }
     except Exception as e:
         if hooks and hasattr(hooks, "metadata"):
             hooks.metadata.update({"error": str(e)})
-        return {"messages": [{"error": str(e)}]}
+        return {"final_output": "", "messages": [{"error": str(e)}]}
+
+
+def _query_requires_math_handoff(query: str) -> bool:
+    q = query.lower()
+    if re.search(r"\b\d+\s*[\+\-\*/]\s*\d+\b", q):
+        return True
+    if re.search(r"\d", q) and any(
+        token in q
+        for token in (
+            "calculate",
+            "add",
+            "subtract",
+            "multiply",
+            "divide",
+            "sum",
+            "difference",
+            "product",
+            "square root",
+            "percent",
+            "minus",
+            "plus",
+            "area",
+        )
+    ):
+        return True
+    return False
+
+
+def _query_requires_research_handoff(query: str) -> bool:
+    q = query.lower()
+    if any(
+        token in q
+        for token in (
+            "latest",
+            "current",
+            "who is",
+            "what is the capital",
+            "population",
+            "president",
+            "ceo",
+            "mayor",
+            "won",
+            "source",
+            "sources",
+        )
+    ):
+        return True
+    return bool(re.search(r"\b(who|what|when|where)\b", q)) and (not _query_requires_math_handoff(query))
+
+
+def _output_messages(output: Any) -> list[dict[str, Any]]:
+    if not isinstance(output, dict):
+        return []
+    messages = output.get("messages", [])
+    if not isinstance(messages, list):
+        return []
+    return [m for m in messages if isinstance(m, dict)]
+
+
+def _has_message_marker(messages: list[dict[str, Any]], markers: tuple[str, ...]) -> bool:
+    lowered = tuple(m.lower() for m in markers)
+    for message in messages:
+        content = str(message.get("content", "") or "").lower()
+        if any(marker in content for marker in lowered):
+            return True
+        tool_calls = message.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            continue
+        for tc in tool_calls:
+            if not isinstance(tc, dict):
+                continue
+            tool_name = str(tc.get("name", "") or "").lower()
+            if any(marker in tool_name for marker in lowered):
+                return True
+    return False
+
+
+async def delegation_compliance_scorer(input, output, expected, metadata, trace):
+    """Deterministic policy compliance check for required delegation markers."""
+    del expected, metadata, trace
+
+    if isinstance(input, dict):
+        try:
+            query = extract_query_from_input(input)
+        except Exception:
+            query = str(input)
+    else:
+        query = str(input)
+
+    messages = _output_messages(output)
+
+    requires_math = _query_requires_math_handoff(query)
+    requires_research = _query_requires_research_handoff(query)
+
+    has_math_handoff = _has_message_marker(
+        messages,
+        ("delegate_to_math_agent", "request_math_subtask", "handoff [mathagent]"),
+    )
+    has_research_handoff = _has_message_marker(
+        messages,
+        ("delegate_to_research_agent", "request_research_subtask", "handoff [researchagent]"),
+    )
+    has_web_marker = _has_message_marker(
+        messages,
+        ("tavily_search", "http://", "https://", "url:"),
+    )
+
+    math_ok = (not requires_math) or has_math_handoff
+    research_ok = (not requires_research) or (has_research_handoff and has_web_marker)
+    compliant = math_ok and research_ok
+
+    return {
+        "name": "Delegation Compliance",
+        "score": 1.0 if compliant else 0.0,
+        "metadata": {
+            "query": query,
+            "requires_math_handoff": requires_math,
+            "requires_research_handoff": requires_research,
+            "has_math_handoff": has_math_handoff,
+            "has_research_handoff": has_research_handoff,
+            "has_web_marker": has_web_marker,
+        },
+    }
 
 
 class RoutingAccuracyOutput(BaseModel):
@@ -284,6 +408,77 @@ POOR
 """
 
 
+def _latest_assistant_text(output: Any) -> str:
+    if not isinstance(output, dict):
+        return ""
+    messages = output.get("messages", [])
+    if not isinstance(messages, list):
+        return ""
+    for msg in reversed(messages):
+        if isinstance(msg, dict) and msg.get("role") == "assistant" and msg.get("content"):
+            return str(msg.get("content"))
+    return ""
+
+
+def _is_self_contained_math_query(query: str) -> bool:
+    q = query.lower()
+
+    # Heuristic: these query forms usually contain all required operands/expressions.
+    if "derivative" in q and re.search(r"derivative\s+of\s+.+", q):
+        return True
+    if "integral" in q and re.search(r"integral\s+of\s+.+", q):
+        return True
+    if "limit" in q and re.search(r"limit\s+of\s+.+", q):
+        return True
+    if "solve for" in q and "=" in q:
+        return True
+    if "quadratic equation" in q and re.search(r"[a-z0-9\)\]]\s*=\s*[a-z0-9\(\[]", q):
+        return True
+    if re.search(r"\b(x\^2|x²)\b", q) and "=" in q:
+        return True
+    return False
+
+
+def _looks_like_clarification_request(text: str) -> bool:
+    lowered = text.lower()
+    patterns = [
+        r"\b(i need|need more information|could you provide|please provide)\b",
+        r"\bwhat (is|are) .*(looking for|value|values)\b",
+        r"\bi need the value of\b",
+        r"\bcould you clarify\b",
+    ]
+    return any(re.search(p, lowered) for p in patterns)
+
+
+async def no_unnecessary_clarification_scorer(input, output, expected, metadata, trace):
+    """Penalize asking for clarification when the math prompt is already self-contained."""
+    del expected, metadata, trace
+
+    if isinstance(input, dict):
+        try:
+            query = extract_query_from_input(input)
+        except Exception:
+            query = str(input)
+    else:
+        query = str(input)
+
+    assistant_text = _latest_assistant_text(output)
+    self_contained = _is_self_contained_math_query(query)
+    asked_for_clarification = _looks_like_clarification_request(assistant_text)
+
+    bad_case = self_contained and asked_for_clarification
+    return {
+        "name": "No Unnecessary Clarification",
+        "score": 0.0 if bad_case else 1.0,
+        "metadata": {
+            "self_contained_math_query": self_contained,
+            "asked_for_clarification": asked_for_clarification,
+            "query": query,
+            "assistant_response": assistant_text,
+        },
+    }
+
+
 class ResponseQualityOutput(BaseModel):
     """Structured output for response quality scoring."""
 
@@ -295,12 +490,7 @@ async def response_quality_scorer(input, output, expected, metadata, trace):
     """Score response quality with structured output parsing."""
     del expected, metadata, trace
 
-    messages = output.get("messages", []) if isinstance(output, dict) else []
-    assistant_response = ""
-    for msg in reversed(messages):
-        if isinstance(msg, dict) and msg.get("role") == "assistant" and msg.get("content"):
-            assistant_response = str(msg["content"])
-            break
+    assistant_response = _latest_assistant_text(output)
 
     if isinstance(input, dict):
         try:
@@ -361,6 +551,25 @@ def load_local_dataset() -> list[dict[str, Any]]:
             if not line:
                 continue
             rows.append(json.loads(line))
+
+    # Keep at least one explicit case that should never be answered directly.
+    rows.append(
+        {
+            "input": {
+                "messages": [
+                    {
+                        "content": "Calculate 341 * 29. Do not answer directly without delegating to MathAgent.",
+                        "type": "human",
+                        "additional_kwargs": {},
+                        "example": False,
+                        "id": None,
+                        "name": None,
+                        "response_metadata": {},
+                    }
+                ]
+            }
+        }
+    )
     return rows
 
 
@@ -398,7 +607,9 @@ Eval(
     task=run_supervisor_task,
     scores=[
         response_quality_scorer,
+        no_unnecessary_clarification_scorer,
         routing_accuracy_scorer,
+        delegation_compliance_scorer,
         step_efficiency_score,
     ],  # type: ignore
     parameters={
