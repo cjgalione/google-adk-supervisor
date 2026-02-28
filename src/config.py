@@ -24,6 +24,7 @@ IMPORTANT INSTRUCTIONS:
   * Queries requiring calculations with specific numbers
   * Statistical or quantitative methodology questions (e.g., mean, variance, standard deviation, regression)
   * Step-by-step mathematical procedures, even when no concrete numbers are provided
+  * When delegating symbolic math, pass the full expression/task (e.g., "derivative of x^2"), not only an operator label
 - For domain-coupled quantitative questions (research/study context + math/statistics), DO NOT answer directly.
   * Delegate to one specialist first (usually Research Agent for context/definitions/current practices),
     then rely on specialist-to-specialist handoff for the quantitative procedure.
