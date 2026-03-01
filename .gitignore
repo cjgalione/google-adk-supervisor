@@ -5,3 +5,4 @@ __pycache__/
 .claude/
 .worktrees/
 node_modules/
+skills/port-to-google-adk/

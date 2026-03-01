@@ -7,10 +7,11 @@ A multi-agent supervisor system built with Google ADK that routes user tasks bet
 - `Supervisor Agent` (routing + synthesis)
 - `CriticAgent` (post-response delegation/tool-use validator)
 
-This repository is a near-structure translation of the `openai-agent-sdk-supervisor` project, preserving:
+This repository includes:
 
-- eval task/scorer layout
-- Braintrust remote eval server deployment pattern
+- local interactive runner for the multi-agent supervisor workflow
+- Braintrust eval suites and reusable scorers
+- Modal remote eval server integration
 - configurable prompts/models through eval parameters
 
 ## Quick Start
@@ -48,14 +49,14 @@ python -m src.local_runner
 ```mermaid
 flowchart TD
     U["User Query"] --> S["SupervisorAgent (ADK)"]
-    S -->|delegate_to_research_agent| R["ResearchAgent"]
-    S -->|delegate_to_math_agent| M["MathAgent"]
-    R -->|request_math_subtask (optional)| M
-    M -->|request_research_subtask (optional)| R
+    S -->|"delegate_to_research_agent"| R["ResearchAgent"]
+    S -->|"delegate_to_math_agent"| M["MathAgent"]
+    R -->|"request_math_subtask (optional)"| M
+    M -->|"request_research_subtask (optional)"| R
     S --> C["CriticAgent"]
-    C -->|compliant=true| O["Return final_output + messages"]
-    C -->|compliant=false| X["Corrective action"]
-    X -->|delegate_research/delegate_math/retry_with_instruction| S
+    C -->|"compliant=true"| O["Return final_output + messages"]
+    C -->|"compliant=false"| X["Corrective action"]
+    X -->|"delegate_research/delegate_math/retry_with_instruction"| S
     X --> C
 ```
 
@@ -128,5 +129,5 @@ Response includes:
 
 ## Notes
 
-- The output contract remains `{"final_output": str, "messages": [...]}` for scorer compatibility and UI.
+- Output contract: `{"final_output": str, "messages": [...]}` for scorer compatibility and UI.
 - Routing inference relies on span/tool-call names (`research`, `math`, `delegate_to_*`, `tavily_search`, arithmetic tool names).
