@@ -3,10 +3,12 @@
 import os
 from typing import Any, Callable
 
+from braintrust import SpanTypeAttribute, start_span
 from google.adk import Agent
 from tavily import TavilyClient
 
 from src.config import DEFAULT_RESEARCH_AGENT_PROMPT
+from src.tracing import get_trace_profile
 
 
 def _get_tavily_client() -> TavilyClient:
@@ -19,36 +21,55 @@ def _get_tavily_client() -> TavilyClient:
 def tavily_search(query: str, max_results: int = 3) -> str:
     """Search the web with Tavily and return summarized results with links."""
     limited_max_results = max(1, min(max_results, 5))
-    response: dict[str, Any] = _get_tavily_client().search(
+
+    def _build_output(response: dict[str, Any]) -> str:
+        lines: list[str] = []
+        answer = response.get("answer")
+        if answer:
+            lines.append(f"Answer: {answer}")
+
+        results = response.get("results", []) or []
+        if not results:
+            if lines:
+                return "\n\n".join(lines)
+            return "No search results found."
+
+        for i, item in enumerate(results, start=1):
+            title = str(item.get("title", "")).strip()
+            url = str(item.get("url", "")).strip()
+            content = str(item.get("content", "")).strip()
+            block = (
+                f"{i}. {title or 'Untitled'}\n"
+                f"URL: {url or 'N/A'}\n"
+                f"Summary: {content or 'N/A'}"
+            )
+            lines.append(block)
+        return "\n\n".join(lines)
+
+    if get_trace_profile() == "lean":
+        with start_span(
+            name="tavily_search",
+            type=SpanTypeAttribute.TOOL,
+            input={"query": query, "max_results": limited_max_results},
+            metadata={"provider": "tavily"},
+        ) as tool_span:
+            response = _get_tavily_client().search(
+                query=query,
+                max_results=limited_max_results,
+                include_answer=True,
+                include_raw_content=False,
+            )
+            output = _build_output(response)
+            tool_span.log(output=output)
+            return output
+
+    response = _get_tavily_client().search(
         query=query,
         max_results=limited_max_results,
         include_answer=True,
         include_raw_content=False,
     )
-
-    lines: list[str] = []
-    answer = response.get("answer")
-    if answer:
-        lines.append(f"Answer: {answer}")
-
-    results = response.get("results", []) or []
-    if not results:
-        if lines:
-            return "\n\n".join(lines)
-        return "No search results found."
-
-    for i, item in enumerate(results, start=1):
-        title = str(item.get("title", "")).strip()
-        url = str(item.get("url", "")).strip()
-        content = str(item.get("content", "")).strip()
-        block = (
-            f"{i}. {title or 'Untitled'}\n"
-            f"URL: {url or 'N/A'}\n"
-            f"Summary: {content or 'N/A'}"
-        )
-        lines.append(block)
-
-    return "\n\n".join(lines)
+    return _build_output(response)
 
 
 def get_research_agent(
