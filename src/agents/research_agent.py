@@ -8,7 +8,6 @@ from google.adk import Agent
 from tavily import TavilyClient
 
 from src.config import DEFAULT_RESEARCH_AGENT_PROMPT
-from src.tracing import get_trace_profile
 
 
 def _get_tavily_client() -> TavilyClient:
@@ -46,30 +45,21 @@ def tavily_search(query: str, max_results: int = 3) -> str:
             lines.append(block)
         return "\n\n".join(lines)
 
-    if get_trace_profile() == "lean":
-        with start_span(
-            name="tavily_search",
-            type=SpanTypeAttribute.TOOL,
-            input={"query": query, "max_results": limited_max_results},
-            metadata={"provider": "tavily"},
-        ) as tool_span:
-            response = _get_tavily_client().search(
-                query=query,
-                max_results=limited_max_results,
-                include_answer=True,
-                include_raw_content=False,
-            )
-            output = _build_output(response)
-            tool_span.log(output=output)
-            return output
-
-    response = _get_tavily_client().search(
-        query=query,
-        max_results=limited_max_results,
-        include_answer=True,
-        include_raw_content=False,
-    )
-    return _build_output(response)
+    with start_span(
+        name="tavily_search",
+        type=SpanTypeAttribute.TOOL,
+        input={"query": query, "max_results": limited_max_results},
+        metadata={"provider": "tavily"},
+    ) as tool_span:
+        response = _get_tavily_client().search(
+            query=query,
+            max_results=limited_max_results,
+            include_answer=True,
+            include_raw_content=False,
+        )
+        output = _build_output(response)
+        tool_span.log(output=output)
+        return output
 
 
 def get_research_agent(

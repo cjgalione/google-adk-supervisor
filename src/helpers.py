@@ -111,10 +111,11 @@ def _serialize_event(event: Any) -> list[dict[str, Any]]:
 
         fr = _part_function_response(part)
         if fr is not None:
-            _, response = fr
+            tool_name, response = fr
             out.append(
                 {
                     "role": "tool",
+                    "name": tool_name,
                     "content": response if isinstance(response, str) else str(_safe_json(response)),
                 }
             )
@@ -152,6 +153,23 @@ def _tool_calls_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, 
     return tool_calls
 
 
+def _tool_responses_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    tool_responses: list[dict[str, Any]] = []
+    for message in messages:
+        if message.get("role") != "tool":
+            continue
+        tool_name = str(message.get("name", "") or "")
+        if not tool_name:
+            continue
+        tool_responses.append(
+            {
+                "name": tool_name,
+                "content": message.get("content", ""),
+            }
+        )
+    return tool_responses
+
+
 async def run_adk_agent(
     *,
     agent: Any,
@@ -174,12 +192,19 @@ async def run_adk_agent(
     final_output = ""
 
     trace_profile = get_trace_profile()
+    pending_tool_calls: dict[str, list[Any]] = {}
 
     async def _run_loop() -> None:
         nonlocal final_output
         async for event in runner.run_async(user_id=uid, session_id=sid, new_message=user_msg):
             event_messages = _serialize_event(event)
             messages.extend(event_messages)
+
+            for tc in _tool_calls_from_messages(event_messages):
+                tool_name = str(tc.get("name", "") or "")
+                if not tool_name:
+                    continue
+                pending_tool_calls.setdefault(tool_name, []).append(_safe_json(tc.get("args", {})))
 
             if trace_profile == "lean":
                 for tc in _tool_calls_from_messages(event_messages):
@@ -196,6 +221,20 @@ async def run_adk_agent(
                         },
                     ):
                         pass
+
+            for tr in _tool_responses_from_messages(event_messages):
+                tool_name = str(tr.get("name", "") or "")
+                if not tool_name:
+                    continue
+                tool_inputs = pending_tool_calls.get(tool_name, [])
+                tool_input = tool_inputs.pop(0) if tool_inputs else {}
+                with start_span(
+                    name=f"tool_execution [{tool_name}]",
+                    type=SpanTypeAttribute.TOOL,
+                    input=tool_input,
+                    metadata={"tool_name": tool_name, "source": "adk_function_response"},
+                ) as tool_span:
+                    tool_span.log(output={"content": tr.get("content", "")})
 
             if hasattr(event, "is_final_response") and event.is_final_response():
                 content = getattr(event, "content", None)
