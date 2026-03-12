@@ -16,18 +16,9 @@ from braintrust import Eval, init_dataset, init_function  # noqa: E402
 from braintrust.oai import wrap_openai  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 from openai import OpenAI  # noqa: E402
-from pydantic import BaseModel  # noqa: E402
-
 from evals.braintrust_parameter_patch import apply_parameter_patch  # noqa: E402
-from evals.parameters import (  # noqa: E402
-    MathAgentPromptParam,
-    MathModelParam,
-    PromptModificationParam,
-    ResearchAgentPromptParam,
-    ResearchModelParam,
-    SupervisorModelParam,
-    SystemPromptParam,
-)
+from evals.parameters import SUPERVISOR_EVAL_PARAMETERS  # noqa: E402
+from evals.parameter_utils import get_hook_parameters, unwrap_parameters  # noqa: E402
 from src.agents.deep_agent import get_supervisor, run_supervisor_with_critic  # noqa: E402
 from src.config import AgentConfig  # noqa: E402
 from src.helpers import extract_query_from_input  # noqa: E402
@@ -47,33 +38,10 @@ configure_adk_tracing(
 
 client = wrap_openai(OpenAI(api_key=os.getenv("OPENAI_API_KEY")))
 
-
-def unwrap_parameters(params: dict) -> dict:
-    """Extract raw parameter values from Braintrust parameter objects."""
-    import inspect
-
-    from pydantic import BaseModel
-
-    result: dict[str, Any] = {}
-    for key, param in params.items():
-        if param is None:
-            continue
-
-        if inspect.isclass(param) and issubclass(param, BaseModel):
-            param_instance = param()
-            result[key] = getattr(param_instance, "value", param_instance)
-        elif isinstance(param, BaseModel):
-            result[key] = getattr(param, "value", param)
-        else:
-            result[key] = param
-
-    return result
-
-
 async def run_supervisor_task(input: dict, hooks: Any = None) -> dict[str, Any]:
     """Run a single task through the supervisor and return serialized messages."""
     try:
-        params = hooks.parameters if hooks and hasattr(hooks, "parameters") else {}
+        params = get_hook_parameters(hooks)
         config_params = unwrap_parameters(params)
         config = AgentConfig(**config_params) if config_params else None
 
@@ -612,13 +580,5 @@ Eval(
         delegation_compliance_scorer,
         step_efficiency_score,
     ],  # type: ignore
-    parameters={
-        "system_prompt": SystemPromptParam,
-        "prompt_modification": PromptModificationParam,
-        "research_agent_prompt": ResearchAgentPromptParam,
-        "math_agent_prompt": MathAgentPromptParam,
-        "supervisor_model": SupervisorModelParam,
-        "research_model": ResearchModelParam,
-        "math_model": MathModelParam,
-    },
+    parameters=SUPERVISOR_EVAL_PARAMETERS,
 )
