@@ -15,7 +15,7 @@ def test_resolve_adk_model_returns_gemini_with_gateway_url_when_enabled():
         gateway_api_key="test-key",
     )
     model = resolve_adk_model("gemini-2.0-flash-lite", config)
-    assert model.__class__.__name__ == "Gemini"
+    assert model.__class__.__name__ == "GatewayGemini"
     assert getattr(model, "model") == "gemini-2.0-flash-lite"
     assert getattr(model, "base_url") == "https://gateway.braintrust.dev/v1"
 
@@ -34,5 +34,21 @@ def test_make_wrapped_openai_client_uses_gateway(monkeypatch):
     monkeypatch.setenv("BRAINTRUST_USE_GATEWAY", "true")
     monkeypatch.setenv("BRAINTRUST_GATEWAY_API_KEY", "gateway-key")
     monkeypatch.setenv("BRAINTRUST_GATEWAY_URL", "https://gateway.braintrust.dev/v1")
+    monkeypatch.setenv("BRAINTRUST_PROJECT_ID", "proj_123")
     client = make_wrapped_openai_client()
     assert str(client.base_url).startswith("https://gateway.braintrust.dev/v1")
+    assert client.default_headers["x-bt-parent"] == "project_id:proj_123"
+    assert client.default_headers["x-bt-project-id"] == "proj_123"
+
+
+def test_resolve_adk_model_includes_gateway_logging_headers(monkeypatch):
+    monkeypatch.setenv("BRAINTRUST_PROJECT", "google-adk-supervisor")
+    config = AgentConfig(
+        use_gateway=True,
+        gateway_url="https://gateway.braintrust.dev/v1",
+        gateway_api_key="test-key",
+    )
+    model = resolve_adk_model("gemini-2.0-flash-lite", config)
+    headers = model._tracking_headers()
+    assert headers["x-bt-parent"] == "project_name:google-adk-supervisor"
+    assert headers["x-bt-project-name"] == "google-adk-supervisor"
