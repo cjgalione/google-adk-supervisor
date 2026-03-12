@@ -73,6 +73,7 @@ def braintrust_eval_server():
 
     # Now import Braintrust components (they will use the patched version)
     from braintrust.cli.eval import EvaluatorState, FileHandle, update_evaluators
+    from braintrust.devserver import cors as bt_cors
     from braintrust.devserver.server import create_app
     from starlette.middleware.cors import CORSMiddleware
     from starlette.requests import Request
@@ -105,6 +106,11 @@ def braintrust_eval_server():
     evaluators = [e.evaluator for e in eval_state.evaluators]
 
     print(f"Loaded {len(evaluators)} evaluator(s): {[e.eval_name for e in evaluators]}")
+
+    # Braintrust devserver has its own CORS middleware; ensure Playground's
+    # `x-bt-use-gateway` preflight header is recognized there as well.
+    if "x-bt-use-gateway" not in bt_cors.ALLOWED_HEADERS:
+        bt_cors.ALLOWED_HEADERS.append("x-bt-use-gateway")
 
     app = create_app(evaluators, org_name=None)
     # Add an outer CORS layer for Playground browser preflight requests.
