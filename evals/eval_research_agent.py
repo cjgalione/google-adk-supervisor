@@ -22,8 +22,9 @@ from evals.parameter_utils import (  # noqa: E402
 )
 from evals.parameters import RESEARCH_EVAL_PARAMETERS  # noqa: E402
 from src.agents.research_agent import get_research_agent  # noqa: E402
-from src.config import DEFAULT_RESEARCH_MODEL  # noqa: E402
+from src.config import AgentConfig, DEFAULT_RESEARCH_MODEL  # noqa: E402
 from src.helpers import run_adk_agent  # noqa: E402
+from src.model_resolver import resolve_adk_model  # noqa: E402
 from src.tracing import configure_adk_tracing  # noqa: E402
 
 load_dotenv()
@@ -46,9 +47,10 @@ async def run_research_task(input: dict, hooks: Any = None) -> dict:
             params.get("research_model"), DEFAULT_RESEARCH_MODEL
         )
 
+        gateway_config = AgentConfig.from_env()
         agent = get_research_agent(
             system_prompt=research_agent_prompt,
-            model=research_model,
+            model=resolve_adk_model(str(research_model), gateway_config),
         )
         query = str(input.get("query", ""))
 

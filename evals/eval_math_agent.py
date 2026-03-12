@@ -22,8 +22,9 @@ from evals.parameter_utils import (  # noqa: E402
 )
 from evals.parameters import MATH_EVAL_PARAMETERS  # noqa: E402
 from src.agents.math_agent import get_math_agent  # noqa: E402
-from src.config import DEFAULT_MATH_MODEL  # noqa: E402
+from src.config import AgentConfig, DEFAULT_MATH_MODEL  # noqa: E402
 from src.helpers import run_adk_agent  # noqa: E402
+from src.model_resolver import resolve_adk_model  # noqa: E402
 from src.tracing import configure_adk_tracing  # noqa: E402
 
 load_dotenv()
@@ -44,7 +45,11 @@ async def run_math_task(input: dict, hooks: Any = None) -> dict:
             params.get("math_model"), DEFAULT_MATH_MODEL
         )
 
-        agent = get_math_agent(system_prompt=math_agent_prompt, model=math_model)
+        gateway_config = AgentConfig.from_env()
+        agent = get_math_agent(
+            system_prompt=math_agent_prompt,
+            model=resolve_adk_model(str(math_model), gateway_config),
+        )
         query = str(input.get("query", ""))
 
         run_result = await run_adk_agent(

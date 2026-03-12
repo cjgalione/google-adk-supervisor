@@ -15,13 +15,14 @@ if str(project_root) not in sys.path:
 from braintrust import Eval, init_dataset, init_function  # noqa: E402
 from braintrust.oai import wrap_openai  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
-from openai import OpenAI  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
 from evals.braintrust_parameter_patch import apply_parameter_patch  # noqa: E402
 from evals.parameters import SUPERVISOR_EVAL_PARAMETERS  # noqa: E402
 from evals.parameter_utils import get_hook_parameters, unwrap_parameters  # noqa: E402
 from src.agents.deep_agent import get_supervisor, run_supervisor_with_critic  # noqa: E402
 from src.config import AgentConfig  # noqa: E402
 from src.helpers import extract_query_from_input  # noqa: E402
+from src.model_resolver import make_wrapped_openai_client  # noqa: E402
 from src.tracing import configure_adk_tracing  # noqa: E402
 
 load_dotenv()
@@ -36,14 +37,14 @@ configure_adk_tracing(
     project_name=os.environ.get("BRAINTRUST_PROJECT", DEFAULT_BRAINTRUST_PROJECT),
 )
 
-client = wrap_openai(OpenAI(api_key=os.getenv("OPENAI_API_KEY")))
+client = wrap_openai(make_wrapped_openai_client())
 
 async def run_supervisor_task(input: dict, hooks: Any = None) -> dict[str, Any]:
     """Run a single task through the supervisor and return serialized messages."""
     try:
         params = get_hook_parameters(hooks)
         config_params = unwrap_parameters(params)
-        config = AgentConfig(**config_params) if config_params else None
+        config = AgentConfig.from_env(**config_params) if config_params else None
 
         supervisor = get_supervisor(config=config, force_rebuild=True)
         query = extract_query_from_input(input)

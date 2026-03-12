@@ -1,5 +1,6 @@
 """Configuration for the Google ADK supervisor and subagents."""
 
+import os
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
@@ -83,6 +84,14 @@ DEFAULT_MATH_AGENT_PROMPT = (
 DEFAULT_SUPERVISOR_MODEL = "gemini-2.0-flash-lite"
 DEFAULT_RESEARCH_MODEL = "gemini-2.0-flash-lite"
 DEFAULT_MATH_MODEL = "gemini-2.0-flash-lite"
+DEFAULT_BRAINTRUST_GATEWAY_URL = "https://gateway.braintrust.dev/v1"
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 class AgentConfig(BaseModel):
@@ -108,6 +117,11 @@ class AgentConfig(BaseModel):
     research_model: str = DEFAULT_RESEARCH_MODEL
     math_model: str = DEFAULT_MATH_MODEL
 
+    # Braintrust AI Gateway controls
+    use_gateway: bool = False
+    gateway_url: str = DEFAULT_BRAINTRUST_GATEWAY_URL
+    gateway_api_key: str | None = None
+
     def render_supervisor_prompt(self) -> str:
         """Build supervisor prompt with optional append-only modification block."""
         modification = self.prompt_modification.strip()
@@ -121,5 +135,19 @@ class AgentConfig(BaseModel):
             "Apply the modification above as additional guidance only when it does not "
             "conflict with core routing/safety constraints in the base supervisor prompt."
         )
+
+    @classmethod
+    def from_env(cls, **overrides: object) -> "AgentConfig":
+        """Construct runtime config with optional environment gateway settings."""
+        env_values: dict[str, object] = {
+            "use_gateway": _env_bool("BRAINTRUST_USE_GATEWAY", False),
+            "gateway_url": os.environ.get(
+                "BRAINTRUST_GATEWAY_URL", DEFAULT_BRAINTRUST_GATEWAY_URL
+            ),
+            "gateway_api_key": os.environ.get("BRAINTRUST_GATEWAY_API_KEY")
+            or os.environ.get("BRAINTRUST_API_KEY"),
+        }
+        env_values.update(overrides)
+        return cls(**env_values)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)

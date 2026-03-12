@@ -37,6 +37,10 @@ Required keys:
 - Optional: `TRACE_PROFILE=full|lean` (default `full`)
   - `full`: existing `braintrust_adk` auto-instrumentation (verbose)
   - `lean`: explicit app spans only (invocation, handoff, llm_response_generation, tool_routing_decision)
+- Optional: Braintrust AI Gateway
+  - `BRAINTRUST_USE_GATEWAY=true`
+  - `BRAINTRUST_GATEWAY_URL=https://gateway.braintrust.dev/v1`
+  - `BRAINTRUST_GATEWAY_API_KEY` (falls back to `BRAINTRUST_API_KEY`)
 
 3. Run local chat:
 
@@ -65,6 +69,16 @@ Runtime notes:
 - Handoff spans remain explicit and stable: `handoff [ResearchAgent]`, `handoff [MathAgent]`.
 - Critic validation is in-loop before final return, with `critic [CriticAgent]` task spans.
 - Returned payload contract includes `final_output` and `messages`.
+
+## Braintrust AI Gateway
+
+When `BRAINTRUST_USE_GATEWAY=true`, this demo routes ADK Gemini model calls
+through Braintrust AI Gateway by constructing `Gemini(..., base_url=...)`
+model objects at runtime. The same toggle also routes the eval judge OpenAI
+client through the gateway endpoint.
+
+Default behavior is unchanged (`BRAINTRUST_USE_GATEWAY=false`), which keeps
+direct provider calls.
 
 ## Evals
 

@@ -21,9 +21,25 @@ def _set_if_undefined(var: str) -> None:
         os.environ[var] = getpass.getpass(f"Please provide your {var}: ")
 
 
+def _is_gateway_enabled() -> bool:
+    return os.environ.get("BRAINTRUST_USE_GATEWAY", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 async def _run_chat() -> None:
     load_dotenv()
-    _set_if_undefined("GOOGLE_API_KEY")
+    if _is_gateway_enabled():
+        if not (
+            os.environ.get("BRAINTRUST_GATEWAY_API_KEY")
+            or os.environ.get("BRAINTRUST_API_KEY")
+        ):
+            _set_if_undefined("BRAINTRUST_GATEWAY_API_KEY")
+    else:
+        _set_if_undefined("GOOGLE_API_KEY")
     _set_if_undefined("TAVILY_API_KEY")
 
     if os.environ.get("BRAINTRUST_API_KEY"):
