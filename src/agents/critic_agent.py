@@ -1,5 +1,7 @@
 """Critic agent that validates delegation/tool-use policy compliance."""
 
+from typing import Any
+
 from google.adk import Agent
 
 DEFAULT_CRITIC_AGENT_PROMPT = (
@@ -16,7 +18,7 @@ DEFAULT_CRITIC_AGENT_PROMPT = (
 
 def get_critic_agent(
     system_prompt: str | None = None,
-    model: str = "gemini-2.0-flash-lite",
+    model: Any = "gemini-2.0-flash-lite",
 ) -> Agent:
     """Create the critic agent."""
     prompt = system_prompt if system_prompt is not None else DEFAULT_CRITIC_AGENT_PROMPT
@@ -26,4 +28,3 @@ def get_critic_agent(
         instruction=prompt,
         tools=[],
     )
-

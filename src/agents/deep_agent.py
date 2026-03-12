@@ -16,6 +16,7 @@ from src.agents.math_agent import add, divide, get_math_agent, multiply, subtrac
 from src.agents.research_agent import get_research_agent
 from src.config import AgentConfig
 from src.helpers import run_adk_agent
+from src.model_resolver import resolve_adk_model
 
 
 _MATH_OPS = {
@@ -366,7 +367,7 @@ def _normalize_critic_decision(raw: dict[str, Any], query: str, messages: list[d
 
 def get_deep_agent(config: AgentConfig | None = None) -> Agent:
     """Create the supervisor agent and wire delegation tools."""
-    resolved_config = config or AgentConfig()
+    resolved_config = config or AgentConfig.from_env()
     supervisor_prompt = resolved_config.render_supervisor_prompt()
 
     research_agent: Agent | None = None
@@ -557,15 +558,17 @@ def get_deep_agent(config: AgentConfig | None = None) -> Agent:
 
     research_agent = get_research_agent(
         system_prompt=resolved_config.research_agent_prompt,
-        model=resolved_config.research_model,
+        model=resolve_adk_model(resolved_config.research_model, resolved_config),
         extra_tools=[request_math_subtask],
     )
     math_agent = get_math_agent(
         system_prompt=resolved_config.math_agent_prompt,
-        model=resolved_config.math_model,
+        model=resolve_adk_model(resolved_config.math_model, resolved_config),
         extra_tools=[request_research_subtask],
     )
-    critic_agent = get_critic_agent(model=resolved_config.supervisor_model)
+    critic_agent = get_critic_agent(
+        model=resolve_adk_model(resolved_config.supervisor_model, resolved_config)
+    )
 
     async def delegate_to_research_agent(query: str, max_results: int = 3) -> str:
         """Delegate a factual lookup or web-research task to ResearchAgent."""
@@ -766,7 +769,7 @@ def get_deep_agent(config: AgentConfig | None = None) -> Agent:
 
     supervisor_agent = Agent(
         name="SupervisorAgent",
-        model=resolved_config.supervisor_model,
+        model=resolve_adk_model(resolved_config.supervisor_model, resolved_config),
         instruction=supervisor_prompt,
         tools=[
             delegate_to_research_agent,

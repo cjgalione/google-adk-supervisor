@@ -17,7 +17,9 @@ from dotenv import load_dotenv  # noqa: E402
 
 from evals.parameters import MathAgentPromptParam, MathModelParam  # noqa: E402
 from src.agents.math_agent import get_math_agent  # noqa: E402
+from src.config import AgentConfig  # noqa: E402
 from src.helpers import run_adk_agent  # noqa: E402
+from src.model_resolver import resolve_adk_model  # noqa: E402
 from src.tracing import configure_adk_tracing  # noqa: E402
 
 load_dotenv()
@@ -50,7 +52,11 @@ async def run_math_task(input: dict, hooks: Any = None) -> dict:
         math_agent_prompt = _param_value(params.get("math_agent_prompt"), None)
         math_model = _param_value(params.get("math_model"), "gemini-2.0-flash-lite")
 
-        agent = get_math_agent(system_prompt=math_agent_prompt, model=math_model)
+        gateway_config = AgentConfig.from_env()
+        agent = get_math_agent(
+            system_prompt=math_agent_prompt,
+            model=resolve_adk_model(str(math_model), gateway_config),
+        )
         query = str(input.get("query", ""))
 
         run_result = await run_adk_agent(
