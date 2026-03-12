@@ -85,3 +85,24 @@ class MathModelParam(BaseModel):
         default=DEFAULT_MATH_MODEL,
         description="Model to use for the math agent (e.g., gemini-2.0-flash-lite).",
     )
+
+
+SUPERVISOR_EVAL_PARAMETERS = {
+    "system_prompt": SystemPromptParam,
+    "prompt_modification": PromptModificationParam,
+    "research_agent_prompt": ResearchAgentPromptParam,
+    "math_agent_prompt": MathAgentPromptParam,
+    "supervisor_model": SupervisorModelParam,
+    "research_model": ResearchModelParam,
+    "math_model": MathModelParam,
+}
+
+RESEARCH_EVAL_PARAMETERS = {
+    "research_agent_prompt": ResearchAgentPromptParam,
+    "research_model": ResearchModelParam,
+}
+
+MATH_EVAL_PARAMETERS = {
+    "math_agent_prompt": MathAgentPromptParam,
+    "math_model": MathModelParam,
+}
