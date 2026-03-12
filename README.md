@@ -12,7 +12,7 @@ This repository includes:
 - local interactive runner for the multi-agent supervisor workflow
 - Braintrust eval suites and reusable scorers
 - Modal remote eval server integration
-- configurable prompts/models through eval parameters
+- configurable prompts/models through Braintrust eval parameters
 
 ## Quick Start
 
@@ -37,6 +37,10 @@ Required keys:
 - Optional: `TRACE_PROFILE=full|lean` (default `full`)
   - `full`: existing `braintrust_adk` auto-instrumentation (verbose)
   - `lean`: explicit app spans only (invocation, handoff, llm_response_generation, tool_routing_decision)
+- Optional: Braintrust AI Gateway
+  - `BRAINTRUST_USE_GATEWAY=true`
+  - `BRAINTRUST_GATEWAY_URL=https://gateway.braintrust.dev/v1`
+  - `BRAINTRUST_GATEWAY_API_KEY` (falls back to `BRAINTRUST_API_KEY`)
 
 3. Run local chat:
 
@@ -66,6 +70,16 @@ Runtime notes:
 - Critic validation is in-loop before final return, with `critic [CriticAgent]` task spans.
 - Returned payload contract includes `final_output` and `messages`.
 
+## Braintrust AI Gateway
+
+When `BRAINTRUST_USE_GATEWAY=true`, this demo routes ADK Gemini model calls
+through Braintrust AI Gateway by constructing `Gemini(..., base_url=...)`
+model objects at runtime. The same toggle also routes the eval judge OpenAI
+client through the gateway endpoint.
+
+Default behavior is unchanged (`BRAINTRUST_USE_GATEWAY=false`), which keeps
+direct provider calls.
+
 ## Evals
 
 Run full supervisor eval:
@@ -80,6 +94,21 @@ Run focused eval suites:
 braintrust eval evals/eval_math_agent.py
 braintrust eval evals/eval_research_agent.py
 ```
+
+### Eval Parameters
+
+All eval suites expose a stable parameter contract based on single-field Pydantic
+models in [`evals/parameters.py`](evals/parameters.py):
+
+- Supervisor eval: `system_prompt`, `prompt_modification`,
+  `research_agent_prompt`, `math_agent_prompt`,
+  `supervisor_model`, `research_model`, `math_model`
+- Research eval: `research_agent_prompt`, `research_model`
+- Math eval: `math_agent_prompt`, `math_model`
+
+The repo applies a compatibility shim for older Braintrust SDK versions that do
+not natively render single-field parameter defaults/descriptions in the
+Playground. When native support is detected, the shim is skipped.
 
 ## Remote Eval Server (Modal)
 

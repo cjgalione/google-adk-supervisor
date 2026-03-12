@@ -64,7 +64,7 @@ def tavily_search(query: str, max_results: int = 3) -> str:
 
 def get_research_agent(
     system_prompt: str | None = None,
-    model: str = "gemini-2.0-flash-lite",
+    model: Any = "gemini-2.0-flash-lite",
     extra_tools: list[Callable[..., Any]] | None = None,
 ) -> Agent:
     """Create the research agent with optional custom prompt and model."""

@@ -62,7 +62,7 @@ def convert_units(value: float, from_unit: str, to_unit: str) -> float:
 
 def get_math_agent(
     system_prompt: str | None = None,
-    model: str = "gemini-2.0-flash-lite",
+    model: Any = "gemini-2.0-flash-lite",
     extra_tools: list[Callable[..., Any]] | None = None,
 ) -> Agent:
     """Create the math agent with optional custom prompt and model."""
