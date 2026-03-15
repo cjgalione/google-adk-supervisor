@@ -1,6 +1,11 @@
 from pydantic import BaseModel, Field
 
 from evals import braintrust_parameter_patch as patch_mod
+from evals.parameters import (
+    MATH_EVAL_PARAMETERS,
+    RESEARCH_EVAL_PARAMETERS,
+    SUPERVISOR_EVAL_PARAMETERS,
+)
 
 
 class _SingleFieldParam(BaseModel):
@@ -43,3 +48,9 @@ def test_apply_parameter_patch_overrides_when_native_is_incompatible(monkeypatch
 
     # Restore function for test isolation.
     monkeypatch.setattr(params_module, "parameters_to_json_schema", original)
+
+
+def test_eval_prompt_parameters_remain_native_prompt_objects():
+    assert SUPERVISOR_EVAL_PARAMETERS["system_prompt"]["type"] == "prompt"
+    assert RESEARCH_EVAL_PARAMETERS["research_agent_prompt"]["type"] == "prompt"
+    assert MATH_EVAL_PARAMETERS["math_agent_prompt"]["type"] == "prompt"

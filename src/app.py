@@ -45,6 +45,7 @@ def braintrust_eval_server():
     from pathlib import Path
 
     from braintrust.cli.eval import EvaluatorState, FileHandle, update_evaluators
+    from braintrust.devserver import cors as bt_cors
     from braintrust.devserver.server import create_app
 
     import evals
@@ -78,6 +79,11 @@ def braintrust_eval_server():
         project_id=os.environ.get("BRAINTRUST_PROJECT_ID"),
         project_name=os.environ.get("BRAINTRUST_PROJECT", "google-adk-supervisor"),
     )
+
+    # Braintrust devserver has its own CORS middleware; ensure Playground's
+    # `x-bt-use-gateway` preflight header is recognized there as well.
+    if "x-bt-use-gateway" not in bt_cors.ALLOWED_HEADERS:
+        bt_cors.ALLOWED_HEADERS.append("x-bt-use-gateway")
 
     # Use Braintrust's built-in create_app which handles all the setup.
     return create_app(evaluators, org_name=None)

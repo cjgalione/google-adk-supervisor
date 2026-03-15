@@ -16,7 +16,9 @@ This repository uses a compatibility shim in
 ## Stable parameter contract
 
 Parameter definitions live in `evals/parameters.py` and are shared across all
-eval suites:
+eval suites. Prompt-bearing fields use Braintrust's native `type="prompt"`
+schema so the Playground shows a real prompt editor with embedded model
+settings.
 
 - `SUPERVISOR_EVAL_PARAMETERS`
 - `RESEARCH_EVAL_PARAMETERS`

@@ -18,11 +18,11 @@ from dotenv import load_dotenv  # noqa: E402
 from evals.braintrust_parameter_patch import apply_parameter_patch  # noqa: E402
 from evals.parameter_utils import (  # noqa: E402
     get_hook_parameters,
-    unwrap_parameter_value,
+    resolve_prompt_and_model,
 )
 from evals.parameters import MATH_EVAL_PARAMETERS  # noqa: E402
 from src.agents.math_agent import get_math_agent  # noqa: E402
-from src.config import AgentConfig, DEFAULT_MATH_MODEL  # noqa: E402
+from src.config import DEFAULT_MATH_MODEL, AgentConfig  # noqa: E402
 from src.helpers import run_adk_agent  # noqa: E402
 from src.model_resolver import resolve_adk_model  # noqa: E402
 from src.tracing import configure_adk_tracing  # noqa: E402
@@ -40,15 +40,17 @@ async def run_math_task(input: dict, hooks: Any = None) -> dict:
     """Run a math calculation through the math agent."""
     try:
         params = get_hook_parameters(hooks)
-        math_agent_prompt = unwrap_parameter_value(params.get("math_agent_prompt"), None)
-        math_model = unwrap_parameter_value(
-            params.get("math_model"), DEFAULT_MATH_MODEL
+        math_agent_prompt, math_model = resolve_prompt_and_model(
+            params,
+            prompt_key="math_agent_prompt",
+            model_key="math_model",
+            default_model=DEFAULT_MATH_MODEL,
         )
 
         gateway_config = AgentConfig.from_env()
         agent = get_math_agent(
             system_prompt=math_agent_prompt,
-            model=resolve_adk_model(str(math_model), gateway_config),
+            model=resolve_adk_model(math_model, gateway_config),
         )
         query = str(input.get("query", ""))
 

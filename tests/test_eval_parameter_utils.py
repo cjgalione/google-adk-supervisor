@@ -1,7 +1,12 @@
+from braintrust.logger import Prompt
+from braintrust.prompt import PromptCompletionBlock, PromptData
 from pydantic import BaseModel, Field
 
 from evals.parameter_utils import (
+    extract_prompt_text_and_model,
     get_hook_parameters,
+    resolve_agent_config_overrides,
+    resolve_prompt_and_model,
     unwrap_parameter_value,
     unwrap_parameters,
 )
@@ -48,3 +53,62 @@ def test_unwrap_parameters_discards_none_values():
         }
     )
     assert unwrapped == {"present": "ok"}
+
+
+def test_extract_prompt_text_and_model_supports_braintrust_prompt_objects():
+    prompt = Prompt.from_prompt_data(
+        "research_agent_prompt",
+        PromptData(
+            prompt=PromptCompletionBlock(content="Use the web carefully."),
+            options={"model": "gemini-2.5-flash"},
+        ),
+    )
+
+    prompt_text, model = extract_prompt_text_and_model(prompt)
+
+    assert prompt_text == "Use the web carefully."
+    assert model == "gemini-2.5-flash"
+
+
+def test_resolve_prompt_and_model_prefers_embedded_prompt_object_values():
+    prompt = Prompt.from_prompt_data(
+        "math_agent_prompt",
+        PromptData(
+            prompt=PromptCompletionBlock(content="Do the math."),
+            options={"model": "gemini-2.5-pro"},
+        ),
+    )
+
+    prompt_text, model = resolve_prompt_and_model(
+        {
+            "math_agent_prompt": prompt,
+            "math_model": _ValueParam(value="legacy-model"),
+        },
+        prompt_key="math_agent_prompt",
+        model_key="math_model",
+        default_model="default-model",
+    )
+
+    assert prompt_text == "Do the math."
+    assert model == "gemini-2.5-pro"
+
+
+def test_resolve_agent_config_overrides_expands_prompt_objects_into_config_fields():
+    prompt = Prompt.from_prompt_data(
+        "system_prompt",
+        PromptData(
+            prompt=PromptCompletionBlock(content="Delegate when needed."),
+            options={"model": "gemini-2.5-mini"},
+        ),
+    )
+
+    overrides = resolve_agent_config_overrides(
+        {
+            "system_prompt": prompt,
+            "prompt_modification": _ValueParam(value="Be extra strict."),
+        }
+    )
+
+    assert overrides["system_prompt"] == "Delegate when needed."
+    assert overrides["supervisor_model"] == "gemini-2.5-mini"
+    assert overrides["prompt_modification"] == "Be extra strict."
