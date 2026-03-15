@@ -1,10 +1,11 @@
 """
 Parameter definitions for Braintrust evals.
 
-These parameters can be configured in the Braintrust playground UI.
-Uses single-field Pydantic models with a 'value' field, which the
-patched Braintrust SDK will unwrap properly.
+Prompt-bearing parameters use Braintrust's native prompt schema so the
+Playground renders prompt/model editors instead of plain text fields.
 """
+
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -17,18 +18,31 @@ from src.config import (
     DEFAULT_SYSTEM_PROMPT,
 )
 
-# Define parameters as single-field Pydantic models
-# The patched SDK will extract the 'value' field's schema and default
+
+def _make_prompt_parameter(
+    *,
+    default_prompt: str,
+    default_model: str,
+    description: str,
+) -> dict[str, Any]:
+    """Build a Braintrust prompt parameter with embedded default model settings."""
+    return {
+        "type": "prompt",
+        "description": description,
+        "default": {
+            "prompt": {
+                "type": "completion",
+                "content": default_prompt,
+            },
+            "options": {
+                "model": default_model,
+            },
+        },
+    }
 
 
-class SystemPromptParam(BaseModel):
-    """System prompt parameter for supervisor agent."""
-
-    value: str = Field(
-        default=DEFAULT_SYSTEM_PROMPT,
-        description="Custom system prompt for the supervisor agent.",
-    )
-
+# Define scalar parameters as single-field Pydantic models.
+# The patched SDK will extract the 'value' field's schema and default.
 
 class PromptModificationParam(BaseModel):
     """Append-only supervisor prompt modification parameter."""
@@ -42,67 +56,37 @@ class PromptModificationParam(BaseModel):
     )
 
 
-class ResearchAgentPromptParam(BaseModel):
-    """Research agent prompt parameter."""
-
-    value: str = Field(
-        default=DEFAULT_RESEARCH_AGENT_PROMPT,
-        description="Custom system prompt for the research agent.",
-    )
-
-
-class MathAgentPromptParam(BaseModel):
-    """Math agent prompt parameter."""
-
-    value: str = Field(
-        default=DEFAULT_MATH_AGENT_PROMPT,
-        description="Custom system prompt for the math agent.",
-    )
-
-
-class SupervisorModelParam(BaseModel):
-    """Supervisor model selection parameter."""
-
-    value: str = Field(
-        default=DEFAULT_SUPERVISOR_MODEL,
-        description="Model to use for the supervisor agent (e.g., gemini-2.0-flash-lite).",
-    )
-
-
-class ResearchModelParam(BaseModel):
-    """Research model selection parameter."""
-
-    value: str = Field(
-        default=DEFAULT_RESEARCH_MODEL,
-        description="Model to use for the research agent (e.g., gemini-2.0-flash-lite).",
-    )
-
-
-class MathModelParam(BaseModel):
-    """Math model selection parameter."""
-
-    value: str = Field(
-        default=DEFAULT_MATH_MODEL,
-        description="Model to use for the math agent (e.g., gemini-2.0-flash-lite).",
-    )
-
-
 SUPERVISOR_EVAL_PARAMETERS = {
-    "system_prompt": SystemPromptParam,
+    "system_prompt": _make_prompt_parameter(
+        default_prompt=DEFAULT_SYSTEM_PROMPT,
+        default_model=DEFAULT_SUPERVISOR_MODEL,
+        description="Supervisor prompt plus its default model.",
+    ),
     "prompt_modification": PromptModificationParam,
-    "research_agent_prompt": ResearchAgentPromptParam,
-    "math_agent_prompt": MathAgentPromptParam,
-    "supervisor_model": SupervisorModelParam,
-    "research_model": ResearchModelParam,
-    "math_model": MathModelParam,
+    "research_agent_prompt": _make_prompt_parameter(
+        default_prompt=DEFAULT_RESEARCH_AGENT_PROMPT,
+        default_model=DEFAULT_RESEARCH_MODEL,
+        description="Research agent prompt plus its default model.",
+    ),
+    "math_agent_prompt": _make_prompt_parameter(
+        default_prompt=DEFAULT_MATH_AGENT_PROMPT,
+        default_model=DEFAULT_MATH_MODEL,
+        description="Math agent prompt plus its default model.",
+    ),
 }
 
 RESEARCH_EVAL_PARAMETERS = {
-    "research_agent_prompt": ResearchAgentPromptParam,
-    "research_model": ResearchModelParam,
+    "research_agent_prompt": _make_prompt_parameter(
+        default_prompt=DEFAULT_RESEARCH_AGENT_PROMPT,
+        default_model=DEFAULT_RESEARCH_MODEL,
+        description="Research agent prompt plus its default model.",
+    ),
 }
 
 MATH_EVAL_PARAMETERS = {
-    "math_agent_prompt": MathAgentPromptParam,
-    "math_model": MathModelParam,
+    "math_agent_prompt": _make_prompt_parameter(
+        default_prompt=DEFAULT_MATH_AGENT_PROMPT,
+        default_model=DEFAULT_MATH_MODEL,
+        description="Math agent prompt plus its default model.",
+    ),
 }

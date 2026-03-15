@@ -16,10 +16,17 @@ from braintrust import Eval, init_dataset, init_function  # noqa: E402
 from braintrust.oai import wrap_openai  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
+
 from evals.braintrust_parameter_patch import apply_parameter_patch  # noqa: E402
+from evals.parameter_utils import (  # noqa: E402
+    get_hook_parameters,
+    resolve_agent_config_overrides,
+)
 from evals.parameters import SUPERVISOR_EVAL_PARAMETERS  # noqa: E402
-from evals.parameter_utils import get_hook_parameters, unwrap_parameters  # noqa: E402
-from src.agents.deep_agent import get_supervisor, run_supervisor_with_critic  # noqa: E402
+from src.agents.deep_agent import (  # noqa: E402
+    get_supervisor,
+    run_supervisor_with_critic,
+)
 from src.config import AgentConfig  # noqa: E402
 from src.helpers import extract_query_from_input  # noqa: E402
 from src.model_resolver import make_wrapped_openai_client  # noqa: E402
@@ -43,7 +50,7 @@ async def run_supervisor_task(input: dict, hooks: Any = None) -> dict[str, Any]:
     """Run a single task through the supervisor and return serialized messages."""
     try:
         params = get_hook_parameters(hooks)
-        config_params = unwrap_parameters(params)
+        config_params = resolve_agent_config_overrides(params)
         config = AgentConfig.from_env(**config_params) if config_params else None
 
         supervisor = get_supervisor(config=config, force_rebuild=True)

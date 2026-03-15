@@ -18,11 +18,11 @@ from dotenv import load_dotenv  # noqa: E402
 from evals.braintrust_parameter_patch import apply_parameter_patch  # noqa: E402
 from evals.parameter_utils import (  # noqa: E402
     get_hook_parameters,
-    unwrap_parameter_value,
+    resolve_prompt_and_model,
 )
 from evals.parameters import RESEARCH_EVAL_PARAMETERS  # noqa: E402
 from src.agents.research_agent import get_research_agent  # noqa: E402
-from src.config import AgentConfig, DEFAULT_RESEARCH_MODEL  # noqa: E402
+from src.config import DEFAULT_RESEARCH_MODEL, AgentConfig  # noqa: E402
 from src.helpers import run_adk_agent  # noqa: E402
 from src.model_resolver import resolve_adk_model  # noqa: E402
 from src.tracing import configure_adk_tracing  # noqa: E402
@@ -40,17 +40,17 @@ async def run_research_task(input: dict, hooks: Any = None) -> dict:
     """Run a research query through the research agent."""
     try:
         params = get_hook_parameters(hooks)
-        research_agent_prompt = unwrap_parameter_value(
-            params.get("research_agent_prompt"), None
-        )
-        research_model = unwrap_parameter_value(
-            params.get("research_model"), DEFAULT_RESEARCH_MODEL
+        research_agent_prompt, research_model = resolve_prompt_and_model(
+            params,
+            prompt_key="research_agent_prompt",
+            model_key="research_model",
+            default_model=DEFAULT_RESEARCH_MODEL,
         )
 
         gateway_config = AgentConfig.from_env()
         agent = get_research_agent(
             system_prompt=research_agent_prompt,
-            model=resolve_adk_model(str(research_model), gateway_config),
+            model=resolve_adk_model(research_model, gateway_config),
         )
         query = str(input.get("query", ""))
 
