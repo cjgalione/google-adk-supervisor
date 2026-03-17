@@ -10,6 +10,7 @@ from evals.parameter_utils import (
     unwrap_parameter_value,
     unwrap_parameters,
 )
+from src.config import AgentConfig
 
 
 class _ValueParam(BaseModel):
@@ -24,6 +25,10 @@ class _MultiFieldParam(BaseModel):
 class _Hooks:
     def __init__(self, parameters):
         self.parameters = parameters
+
+
+class _NonStringPromptObject:
+    pass
 
 
 def test_get_hook_parameters_returns_empty_for_missing_hooks():
@@ -112,3 +117,31 @@ def test_resolve_agent_config_overrides_expands_prompt_objects_into_config_field
     assert overrides["system_prompt"] == "Delegate when needed."
     assert overrides["supervisor_model"] == "gemini-2.5-mini"
     assert overrides["prompt_modification"] == "Be extra strict."
+
+
+def test_resolve_agent_config_overrides_drops_non_string_prompt_overrides():
+    overrides = resolve_agent_config_overrides(
+        {
+            "research_agent_prompt": _NonStringPromptObject(),
+            "prompt_modification": _ValueParam(value="Respond in Italian."),
+        }
+    )
+
+    assert "research_agent_prompt" not in overrides
+    assert overrides["prompt_modification"] == "Respond in Italian."
+
+
+def test_research_prompt_object_can_round_trip_into_agent_config():
+    prompt = Prompt.from_prompt_data(
+        "research_agent_prompt",
+        PromptData(
+            prompt=PromptCompletionBlock(content="Research in Italian and include sources."),
+            options={"model": "gpt-4o-mini"},
+        ),
+    )
+
+    overrides = resolve_agent_config_overrides({"research_agent_prompt": prompt})
+    config = AgentConfig.from_env(**overrides)
+
+    assert config.research_agent_prompt == "Research in Italian and include sources."
+    assert isinstance(config.research_agent_prompt, str)

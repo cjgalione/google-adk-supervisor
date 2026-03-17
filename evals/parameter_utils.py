@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from braintrust.logger import Prompt
 from pydantic import BaseModel
 
 
@@ -50,10 +49,15 @@ def _prompt_content_to_text(content: Any) -> str | None:
     if isinstance(content, str):
         return content
 
+    if isinstance(content, dict):
+        text_value = content.get("text")
+        if isinstance(text_value, str):
+            return text_value
+
     if isinstance(content, list):
         text_parts: list[str] = []
         for part in content:
-            text = getattr(part, "text", None)
+            text = part.get("text") if isinstance(part, dict) else getattr(part, "text", None)
             if isinstance(text, str) and text:
                 text_parts.append(text)
         if text_parts:
@@ -62,29 +66,80 @@ def _prompt_content_to_text(content: Any) -> str | None:
     return None
 
 
+def _prompt_type(prompt_block: Any) -> str | None:
+    if isinstance(prompt_block, dict):
+        prompt_type = prompt_block.get("type")
+        return str(prompt_type) if isinstance(prompt_type, str) else None
+
+    prompt_type = getattr(prompt_block, "type", None)
+    return str(prompt_type) if isinstance(prompt_type, str) else None
+
+
+def _prompt_content(prompt_block: Any) -> Any:
+    if isinstance(prompt_block, dict):
+        return prompt_block.get("content")
+    return getattr(prompt_block, "content", None)
+
+
+def _prompt_messages(prompt_block: Any) -> list[Any]:
+    if isinstance(prompt_block, dict):
+        messages = prompt_block.get("messages")
+    else:
+        messages = getattr(prompt_block, "messages", None)
+    return messages if isinstance(messages, list) else []
+
+
+def _message_role(message: Any) -> str:
+    if isinstance(message, dict):
+        role = message.get("role", "")
+    else:
+        role = getattr(message, "role", "")
+    return str(role or "").lower()
+
+
+def _message_content(message: Any) -> Any:
+    if isinstance(message, dict):
+        return message.get("content")
+    return getattr(message, "content", None)
+
+
+def _prompt_options(param: Any) -> Any:
+    if isinstance(param, dict):
+        return param.get("options")
+    return getattr(param, "options", None)
+
+
+def _prompt_payload(param: Any) -> Any:
+    if isinstance(param, dict):
+        return param.get("prompt")
+    return getattr(param, "prompt", None)
+
+
 def extract_prompt_text_and_model(param: Any) -> tuple[str | None, str | None]:
-    """Extract prompt text and embedded model from a Braintrust prompt parameter."""
-    if not isinstance(param, Prompt):
+    """Extract prompt text and embedded model from prompt-like eval parameters."""
+    if param is None:
         return None, None
 
     prompt_text: str | None = None
-    prompt_block = getattr(param, "prompt", None)
-    prompt_type = getattr(prompt_block, "type", None)
+    prompt_block = _prompt_payload(param)
+    prompt_type = _prompt_type(prompt_block)
 
     if prompt_type == "completion":
-        prompt_text = getattr(prompt_block, "content", None)
+        prompt_candidate = _prompt_content(prompt_block)
+        if isinstance(prompt_candidate, str):
+            prompt_text = prompt_candidate
     elif prompt_type == "chat":
-        messages = getattr(prompt_block, "messages", None) or []
+        messages = _prompt_messages(prompt_block)
         system_messages = [
-            _prompt_content_to_text(getattr(message, "content", None))
+            _prompt_content_to_text(_message_content(message))
             for message in messages
-            if getattr(message, "role", None) == "system"
+            if _message_role(message) == "system"
         ]
         prompt_candidates = [text for text in system_messages if text]
         if prompt_candidates:
             prompt_text = "\n\n".join(prompt_candidates)
 
-    options = getattr(param, "options", None) or {}
+    options = _prompt_options(param) or {}
     model = options.get("model") if isinstance(options, dict) else getattr(options, "model", None)
 
     return prompt_text, model
@@ -123,6 +178,11 @@ def resolve_agent_config_overrides(params: dict[str, Any]) -> dict[str, Any]:
         prompt_text, embedded_model = extract_prompt_text_and_model(params.get(prompt_key))
         if prompt_text is not None:
             overrides[prompt_key] = prompt_text
+        else:
+            # Never forward raw prompt objects into AgentConfig string fields.
+            current = overrides.get(prompt_key)
+            if current is not None and not isinstance(current, str):
+                overrides.pop(prompt_key, None)
         if embedded_model is not None and model_key:
             overrides[model_key] = embedded_model
 
