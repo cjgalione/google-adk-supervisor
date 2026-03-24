@@ -14,6 +14,7 @@ from google.adk import Agent
 from src.agents.critic_agent import get_critic_agent
 from src.agents.math_agent import add, divide, get_math_agent, multiply, subtract
 from src.agents.research_agent import get_research_agent
+from src.cache import SemanticCache, detect_agent_type
 from src.config import AgentConfig
 from src.helpers import run_adk_agent
 from src.model_resolver import resolve_adk_model
@@ -802,12 +803,59 @@ async def run_supervisor_with_critic(
     supervisor: Agent,
     query: str,
     app_name: str,
+    cache: SemanticCache | None = None,
 ) -> dict[str, Any]:
-    """Run supervisor, then enforce delegation policy with critic validation."""
+    """Run supervisor, then enforce delegation policy with critic validation.
+
+    If *cache* is provided the function checks for a semantically similar
+    cached response first.  Cache hits short-circuit the full pipeline and are
+    annotated with ``cache_hit: true`` in the Braintrust trace.  Misses run
+    the full pipeline and store the result for future hits.
+    """
+    # ------------------------------------------------------------------
+    # Cache look-up
+    # ------------------------------------------------------------------
+    if cache is not None:
+        cache_entry = await cache.get(query)
+        if cache_entry is not None:
+            with start_span(
+                name="invocation [supervisor_with_critic]",
+                type=SpanTypeAttribute.TASK,
+                input={"query": query, "app_name": app_name},
+                metadata={
+                    "cache_hit": True,
+                    "cached_query": cache_entry.query,
+                    "cached_agent_type": cache_entry.agent_type,
+                    "cache_hit_count": cache_entry.hit_count,
+                },
+            ) as root_span:
+                root_span.log(
+                    output={
+                        "final_output": cache_entry.response,
+                        "cache_hit": True,
+                        "critic_decision": cache_entry.critic_decision,
+                        "critic_corrected": False,
+                    }
+                )
+            return {
+                "final_output": cache_entry.response,
+                "messages": [
+                    {"role": "user", "content": query},
+                    {"role": "assistant", "content": cache_entry.response},
+                ],
+                "critic_decision": cache_entry.critic_decision,
+                "critic_corrected": False,
+                "cache_hit": True,
+            }
+
+    # ------------------------------------------------------------------
+    # Full pipeline (cache miss or cache disabled)
+    # ------------------------------------------------------------------
     with start_span(
         name="invocation [supervisor_with_critic]",
         type=SpanTypeAttribute.TASK,
         input={"query": query, "app_name": app_name},
+        metadata={"cache_hit": False},
     ) as root_span:
         candidate = await run_adk_agent(
             agent=supervisor,
@@ -837,9 +885,28 @@ async def run_supervisor_with_critic(
                 "critic_corrected": bool(validated.get("corrected", False)),
             }
         )
-        return {
+
+        result: dict[str, Any] = {
             "final_output": str(validated.get("final_output", "")).strip(),
             "messages": validated.get("messages", []),
             "critic_decision": validated.get("critic_decision", {}),
             "critic_corrected": bool(validated.get("corrected", False)),
+            "cache_hit": False,
         }
+
+        # ------------------------------------------------------------------
+        # Store successful response in cache for future hits
+        # ------------------------------------------------------------------
+        if cache is not None and result["final_output"]:
+            agent_type = detect_agent_type(
+                result["messages"],
+                result["critic_decision"],
+            )
+            await cache.set(
+                query=query,
+                response=result["final_output"],
+                agent_type=agent_type,
+                critic_decision=result["critic_decision"],
+            )
+
+        return result

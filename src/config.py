@@ -122,6 +122,13 @@ class AgentConfig(BaseModel):
     gateway_url: str = DEFAULT_BRAINTRUST_GATEWAY_URL
     gateway_api_key: str | None = None
 
+    # Semantic cache controls
+    cache_enabled: bool = False
+    cache_path: str = ".cache/query_cache.json"
+    cache_similarity_threshold: float = 0.92
+    cache_math_ttl: float = 86_400.0    # seconds; math answers are stable
+    cache_research_ttl: float = 3_600.0  # seconds; web facts may go stale
+
     def render_supervisor_prompt(self) -> str:
         """Build supervisor prompt with optional append-only modification block."""
         modification = self.prompt_modification.strip()
@@ -146,6 +153,13 @@ class AgentConfig(BaseModel):
             ),
             "gateway_api_key": os.environ.get("BRAINTRUST_GATEWAY_API_KEY")
             or os.environ.get("BRAINTRUST_API_KEY"),
+            "cache_enabled": _env_bool("CACHE_ENABLED", False),
+            "cache_path": os.environ.get("CACHE_PATH", ".cache/query_cache.json"),
+            "cache_similarity_threshold": float(
+                os.environ.get("CACHE_SIMILARITY_THRESHOLD", "0.92")
+            ),
+            "cache_math_ttl": float(os.environ.get("CACHE_MATH_TTL", "86400")),
+            "cache_research_ttl": float(os.environ.get("CACHE_RESEARCH_TTL", "3600")),
         }
         env_values.update(overrides)
         return cls(**env_values)

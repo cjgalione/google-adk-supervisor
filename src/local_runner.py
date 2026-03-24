@@ -11,6 +11,7 @@ from rich.prompt import Prompt
 from rich.text import Text
 
 from src.agent_graph import get_supervisor, run_supervisor_with_critic
+from src.cache import SemanticCache, make_cache_from_env
 from src.tracing import configure_adk_tracing
 
 DEFAULT_BRAINTRUST_PROJECT = "google-adk-supervisor"
@@ -51,11 +52,13 @@ async def _run_chat() -> None:
 
     console = Console()
     supervisor = get_supervisor()
+    cache: SemanticCache | None = make_cache_from_env()
 
     welcome_text = Text("Google ADK Supervisor Chat", style="bold cyan")
+    cache_note = " · cache ON" if cache is not None else ""
     welcome_panel = Panel(
         welcome_text,
-        subtitle="Type 'quit' or 'q' to exit",
+        subtitle=f"Type 'quit' or 'q' to exit{cache_note}",
         border_style="cyan",
     )
     console.print(welcome_panel)
@@ -65,6 +68,14 @@ async def _run_chat() -> None:
         user_input = Prompt.ask("[bold green]You[/bold green]", console=console)
 
         if user_input.lower() in {"q", "quit", "exit"}:
+            if cache is not None:
+                stats = cache.stats()
+                console.print(
+                    f"\n[dim]Cache stats — hits: {stats['hits']}, "
+                    f"misses: {stats['misses']}, "
+                    f"hit rate: {stats['hit_rate']:.1%}, "
+                    f"entries: {stats['entries']}[/dim]"
+                )
             console.print("\n[bold yellow]Goodbye![/bold yellow]")
             break
 
@@ -76,14 +87,17 @@ async def _run_chat() -> None:
                 supervisor=supervisor,
                 query=user_input,
                 app_name="google-adk-supervisor-local",
+                cache=cache,
             )
 
         final_output = run_result.get("final_output", "")
+        cache_hit = run_result.get("cache_hit", False)
+        title = "[dim]Assistant (cached)[/dim]" if cache_hit else "Assistant"
         console.print(
             Panel(
                 str(final_output) if final_output else "(No response generated)",
-                title="Assistant",
-                border_style="blue",
+                title=title,
+                border_style="blue" if not cache_hit else "dim",
             )
         )
         console.print()
