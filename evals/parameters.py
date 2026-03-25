@@ -16,6 +16,7 @@ from src.config import (
     DEFAULT_RESEARCH_MODEL,
     DEFAULT_SUPERVISOR_MODEL,
     DEFAULT_SYSTEM_PROMPT,
+    DELEGATION_HARDENING_PROMPT,
 )
 
 
@@ -45,13 +46,25 @@ def _make_prompt_parameter(
 # The patched SDK will extract the 'value' field's schema and default.
 
 class PromptModificationParam(BaseModel):
-    """Append-only supervisor prompt modification parameter."""
+    """Append-only supervisor prompt modification parameter.
+
+    The default value is DELEGATION_HARDENING_PROMPT, which pre-fills the
+    Braintrust Playground with the fix for the canary failure cases.
+
+    Demo flow:
+      - CI eval runs (hooks=None): prompt_modification is read from env /
+        AgentConfig defaults (empty), so the canary traces fail as expected.
+      - Playground: this default pre-fills the field.  Click "Run" on a
+        failing canary trace and the delegation_compliance score flips 0→1.
+    """
 
     value: str = Field(
-        default="",
+        default=DELEGATION_HARDENING_PROMPT,
         description=(
-            "Optional append-only modification for the supervisor prompt. "
-            "Use this to tune routing criteria without replacing the full base prompt."
+            "Append-only modification for the supervisor prompt. "
+            "Pre-filled with the delegation-hardening override that fixes the "
+            "canary failure cases — paste into a failing trace in the Playground "
+            "and re-run to demonstrate the fix."
         ),
     )
 

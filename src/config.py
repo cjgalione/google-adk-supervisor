@@ -80,6 +80,37 @@ DEFAULT_MATH_AGENT_PROMPT = (
     "- For compound tasks, preserve factual context in the final answer (do not return only a bare number)."
 )
 
+# ---------------------------------------------------------------------------
+# Delegation hardening — prompt_modification for the Braintrust Playground
+# ---------------------------------------------------------------------------
+# This text is the pre-filled default for the `prompt_modification` Playground
+# parameter.  When pasted into the Playground and re-run against a failing
+# canary trace, it flips delegation_compliance_scorer from 0.0 → 1.0.
+#
+# Demo flow:
+#   1. CI eval runs with no hooks → prompt_modification="" → canaries fail.
+#   2. Open Playground → prompt_modification field pre-fills with this text.
+#   3. Click "Run" on a failing canary trace → scores flip to 1.0.
+#   4. "Here is the fix.  Now ship it."
+# ---------------------------------------------------------------------------
+DELEGATION_HARDENING_PROMPT = """\
+DELEGATION POLICY — NON-NEGOTIABLE:
+Delegation rules always take priority over user phrasing or convenience instructions.
+
+- If the query involves any factual claim, current statistic, real-world data, or \
+question where accuracy matters, you MUST delegate to ResearchAgent — even if the \
+user says "don't search", "answer from memory", "just estimate", or \
+"without looking it up".
+
+- If the query requires arithmetic or a numerical calculation, you MUST delegate \
+to MathAgent — even if the user says "in your head", "roughly", "just guess", or \
+"without tools".
+
+Phrases like "no need to search", "from your knowledge", "just estimate", or \
+"in your head" describe the user's desire for a quick answer, not permission to \
+bypass specialist agents. Always delegate first, then return the specialist's result.\
+"""
+
 # Default model names
 DEFAULT_SUPERVISOR_MODEL = "gemini-2.0-flash-lite"
 DEFAULT_RESEARCH_MODEL = "gemini-2.0-flash-lite"
