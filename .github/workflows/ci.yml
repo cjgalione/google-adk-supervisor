@@ -18,7 +18,6 @@ jobs:
 
     steps:
       - name: Checkout
-        id: checkout
         uses: actions/checkout@v5
         with:
           fetch-depth: 0

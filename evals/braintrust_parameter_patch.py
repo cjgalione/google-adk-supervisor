@@ -101,7 +101,7 @@ def _is_native_parameter_schema_compatible() -> bool:
         value: str = Field(default="probe-default", description="probe-description")
 
     try:
-        import braintrust.parameters as params_module  # pyright: ignore[reportMissingImports]
+        import braintrust.parameters as params_module
 
         schema = params_module.parameters_to_json_schema({"probe": _ProbeParameter})
     except Exception:
@@ -118,7 +118,6 @@ def _is_native_parameter_schema_compatible() -> bool:
     if not isinstance(probe_schema, dict):
         return False
 
-    # Compatible behavior: schema is scalar (e.g. {"type":"string"}) and metadata is present.
     if probe_schema.get("type") != "string":
         return False
 
@@ -133,15 +132,15 @@ def _is_native_parameter_schema_compatible() -> bool:
 def apply_parameter_patch(verbose: bool = True) -> bool:
     """Patch Braintrust only when native SDK behavior is not compatible."""
     try:
-        import braintrust.parameters as params_module  # pyright: ignore[reportMissingImports]
+        import braintrust.parameters as params_module
     except ImportError as exc:
         if verbose:
-            print(f"⚠ Failed to import Braintrust parameters module: {exc}")
+            print(f"Failed to import Braintrust parameters module: {exc}")
         return False
 
     if _is_native_parameter_schema_compatible():
         if verbose:
-            print("✓ Braintrust parameter schema is natively compatible; patch skipped")
+            print("Braintrust parameter schema is natively compatible; patch skipped")
         return True
 
     try:
@@ -152,9 +151,9 @@ def apply_parameter_patch(verbose: bool = True) -> bool:
             ):
                 module.parameters_to_json_schema = patched_parameters_to_json_schema  # type: ignore[attr-defined]
         if verbose:
-            print("✓ Applied Braintrust parameter compatibility patch")
+            print("Applied Braintrust parameter compatibility patch")
         return True
-    except Exception as exc:  # pragma: no cover - defensive fallback
+    except Exception as exc:
         if verbose:
-            print(f"⚠ Failed to apply Braintrust parameter patch: {exc}")
+            print(f"Failed to apply Braintrust parameter patch: {exc}")
         return False

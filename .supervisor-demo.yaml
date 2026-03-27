@@ -1,0 +1,19 @@
+repo_id: google-adk-supervisor
+runtime_profile: python
+braintrust_project_ref: google-adk-supervisor
+required_secrets:
+- GOOGLE_API_KEY
+- BRAINTRUST_API_KEY
+- TAVILY_API_KEY
+managed_paths:
+- .github/workflows/*.yml
+- evals/README_PARAMETER_PATCH.md
+- evals/braintrust_parameter_patch.py
+- src/umbrella_capabilities/**
+- src/adapters/**
+- src/api/**
+- .supervisor-demo.yaml
+endpoint:
+  base_url: http://127.0.0.1:8101
+  chat_turn_path: /v1/chat/turn
+  chat_reset_path: /v1/chat/reset
