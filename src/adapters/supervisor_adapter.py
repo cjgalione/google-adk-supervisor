@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import os
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator
 
 from src.agents.deep_agent import get_supervisor, run_supervisor_with_critic
 from src.tracing import configure_adk_tracing
-from src.umbrella_capabilities.multi_turn.session_store import SessionStore
+from src.umbrella_capabilities.multi_turn.session_store import SessionState, SessionStore
 
 try:
     from braintrust import SpanTypeAttribute as _BT_SPAN_TYPE
@@ -30,12 +31,25 @@ SubagentHandler = Callable[[str, dict[str, Any]], str]
 
 
 class _NoopSpan:
+    def __enter__(self) -> "_NoopSpan":
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        _ = (exc_type, exc, tb)
+        return False
+
     def log(self, *args: Any, **kwargs: Any) -> None:
         _ = (args, kwargs)
 
+    def end(self) -> None:
+        return None
+
+    def start_span(self, **_: Any) -> "_NoopSpan":
+        return _NoopSpan()
+
 
 @contextmanager
-def _start_trace_span(name: str, input_payload: dict[str, Any], metadata: dict[str, Any]) -> Iterator[_NoopSpan]:
+def _top_level_span(name: str, input_payload: dict[str, Any], metadata: dict[str, Any]) -> Iterator[_NoopSpan]:
     if _BT_START_SPAN is None or _BT_SPAN_TYPE is None:
         yield _NoopSpan()
         return
@@ -47,6 +61,15 @@ def _start_trace_span(name: str, input_payload: dict[str, Any], metadata: dict[s
         metadata=metadata,
     ) as span:
         yield span
+
+
+def _session_ttl_seconds() -> int:
+    raw = str(os.environ.get("CHAT_SESSION_TTL_SECONDS", "1800")).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return 1800
+    return value if value > 0 else 1800
 
 
 def _format_history_messages(messages: list[dict[str, Any]]) -> str:
@@ -79,6 +102,7 @@ class RuntimeSupervisorAdapter:
         self._subagents: dict[str, tuple[list[str], SubagentHandler]] = {}
         self._supervisor = supervisor or get_supervisor()
         self._default_app_name = default_app_name
+        self._session_ttl_seconds = _session_ttl_seconds()
 
         self._configure_tracing()
         self._register_default_subagents()
@@ -101,8 +125,86 @@ class RuntimeSupervisorAdapter:
             # Keep adapter usable even if optional sub-agent registration fails.
             pass
 
+    def _reap_expired_sessions(self, now_ts: float) -> None:
+        expired = self._session_store.reap_expired(now_ts=now_ts, ttl_seconds=self._session_ttl_seconds)
+        for session_id, state in expired:
+            self._close_session_root_span(session_id=session_id, state=state, reason="ttl")
+
+    def _create_session_root_span(self, *, session_id: str, metadata: dict[str, Any]) -> Any | None:
+        if _BT_START_SPAN is None or _BT_SPAN_TYPE is None:
+            return None
+
+        try:
+            return _BT_START_SPAN(
+                name=f"Chat Session: {session_id}",
+                type=_BT_SPAN_TYPE.TASK,
+                input={"session_id": session_id, "event": "session.start"},
+                metadata={
+                    "session_id": session_id,
+                    "repo_id": "google-adk-supervisor",
+                    "source": "chat_api",
+                    "initial_metadata": dict(metadata or {}),
+                },
+            )
+        except Exception:
+            return None
+
+    def _close_session_root_span(self, *, session_id: str, state: SessionState, reason: str) -> None:
+        span = state.session_root_span
+        state.session_root_span = None
+        if span is None:
+            return
+
+        try:
+            span.log(
+                output={
+                    "session_id": session_id,
+                    "status": "closed",
+                    "ended_by": reason,
+                    "turn_count": state.turn_count,
+                    "history_length": len(state.messages),
+                }
+            )
+            span.end()
+        except Exception:
+            # Tracing must never break demo chat behavior.
+            pass
+
+    def _turn_span_context(
+        self,
+        *,
+        state: SessionState,
+        turn_index: int,
+        session_id: str,
+        message: str,
+        metadata: dict[str, Any],
+    ):
+        span_metadata = {
+            "session_id": session_id,
+            "repo_id": "google-adk-supervisor",
+            "turn_index": turn_index,
+            "metadata": metadata,
+        }
+        if state.session_root_span is not None and hasattr(state.session_root_span, "start_span"):
+            return state.session_root_span.start_span(
+                name=f"Turn {turn_index}",
+                type=_BT_SPAN_TYPE.TASK if _BT_SPAN_TYPE is not None else None,
+                input={"session_id": session_id, "turn_index": turn_index, "message": message},
+                metadata=span_metadata,
+            )
+
+        return _top_level_span(
+            name=f"Turn {turn_index}",
+            input_payload={"session_id": session_id, "turn_index": turn_index, "message": message},
+            metadata=span_metadata,
+        )
+
     def reset_session(self, session_id: str) -> bool:
-        return self._session_store.reset(session_id)
+        state = self._session_store.pop(session_id)
+        if state is None:
+            return False
+        self._close_session_root_span(session_id=session_id, state=state, reason="reset")
+        return True
 
     def _build_contextual_query(self, messages: list[dict[str, Any]], metadata: dict[str, Any]) -> str:
         history_window = metadata.get("history_window", 8)
@@ -152,70 +254,93 @@ class RuntimeSupervisorAdapter:
         if not message:
             raise ValueError("user_input must be non-empty")
 
-        active_session_id, state = self._session_store.resolve(session_id)
-        state.messages.append({"role": "user", "content": message})
+        now_ts = time.time()
+        self._reap_expired_sessions(now_ts)
 
         metadata = dict(metadata or {})
+        active_session_id, state = self._session_store.resolve(session_id, now_ts=now_ts)
+
+        if state.session_root_span is None:
+            state.session_root_span = self._create_session_root_span(
+                session_id=active_session_id,
+                metadata=metadata,
+            )
+
+        state.turn_count += 1
+        turn_index = state.turn_count
+        state.messages.append({"role": "user", "content": message})
+
         matching_subagent = self._matching_subagent(message)
 
-        with _start_trace_span(
-            name="chat_turn [google-adk-supervisor]",
-            input_payload={"session_id": active_session_id, "message": message},
-            metadata={
-                "session_id": active_session_id,
-                "repo_id": "google-adk-supervisor",
-                "turn_index": len(state.messages),
-                "metadata": metadata,
-            },
+        with self._turn_span_context(
+            state=state,
+            turn_index=turn_index,
+            session_id=active_session_id,
+            message=message,
+            metadata=metadata,
         ) as turn_span:
-            if matching_subagent is not None:
-                agent_id, handler = matching_subagent
-                assistant_message = str(handler(message, metadata)).strip() or "(No response generated)"
-                events: list[dict[str, Any]] = [
-                    {
-                        "type": "subagent.response",
-                        "agent_id": agent_id,
-                        "session_id": active_session_id,
-                    }
-                ]
-            else:
-                contextual_query = self._build_contextual_query(state.messages, metadata)
-                app_name = str(
-                    metadata.get("workflow_name")
-                    or metadata.get("app_name")
-                    or f"{self._default_app_name}-{active_session_id}"
-                ).strip()
-                if not app_name:
-                    app_name = f"{self._default_app_name}-{active_session_id}"
+            try:
+                if matching_subagent is not None:
+                    agent_id, handler = matching_subagent
+                    assistant_message = str(handler(message, metadata)).strip() or "(No response generated)"
+                    events: list[dict[str, Any]] = [
+                        {
+                            "type": "subagent.response",
+                            "agent_id": agent_id,
+                            "session_id": active_session_id,
+                        }
+                    ]
+                else:
+                    contextual_query = self._build_contextual_query(state.messages, metadata)
+                    app_name = str(
+                        metadata.get("workflow_name")
+                        or metadata.get("app_name")
+                        or f"{self._default_app_name}-{active_session_id}"
+                    ).strip()
+                    if not app_name:
+                        app_name = f"{self._default_app_name}-{active_session_id}"
 
-                run_result = await run_supervisor_with_critic(
-                    supervisor=self._supervisor,
-                    query=contextual_query,
-                    app_name=app_name,
+                    run_result = await run_supervisor_with_critic(
+                        supervisor=self._supervisor,
+                        query=contextual_query,
+                        app_name=app_name,
+                    )
+
+                    assistant_message = str(run_result.get("final_output", "")).strip() or "(No response generated)"
+                    critic_decision = run_result.get("critic_decision", {})
+                    events = [
+                        {
+                            "type": "turn.completed",
+                            "repo_id": "google-adk-supervisor",
+                            "session_id": active_session_id,
+                            "turn_index": turn_index,
+                            "critic_corrected": bool(run_result.get("critic_corrected", False)),
+                        }
+                    ]
+                    if critic_decision:
+                        events.append({"type": "critic.decision", "decision": critic_decision})
+
+                state.messages.append({"role": "assistant", "content": assistant_message})
+                state.last_seen_at = time.time()
+                turn_span.log(
+                    output={
+                        "session_id": active_session_id,
+                        "assistant_message": assistant_message,
+                        "events": events,
+                        "history_length": len(state.messages),
+                        "turn_index": turn_index,
+                    }
                 )
-
-                assistant_message = str(run_result.get("final_output", "")).strip() or "(No response generated)"
-                critic_decision = run_result.get("critic_decision", {})
-                events = [
-                    {
-                        "type": "turn.completed",
-                        "repo_id": "google-adk-supervisor",
+            except Exception as exc:
+                turn_span.log(
+                    output={
                         "session_id": active_session_id,
-                        "critic_corrected": bool(run_result.get("critic_corrected", False)),
+                        "turn_index": turn_index,
+                        "status": "failed",
+                        "error": str(exc),
                     }
-                ]
-                if critic_decision:
-                    events.append({"type": "critic.decision", "decision": critic_decision})
-
-            state.messages.append({"role": "assistant", "content": assistant_message})
-            turn_span.log(
-                output={
-                    "session_id": active_session_id,
-                    "assistant_message": assistant_message,
-                    "events": events,
-                    "history_length": len(state.messages),
-                }
-            )
+                )
+                raise
 
         return TurnResult(
             session_id=active_session_id,

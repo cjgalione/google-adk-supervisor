@@ -35,6 +35,7 @@ Required keys:
 - `BRAINTRUST_API_KEY` (if tracing/evals)
 - `OPENAI_API_KEY` (used by judge scorers)
 - Optional: `TRACE_PROFILE=full|lean` (default `full`)
+- Optional: `CHAT_SESSION_TTL_SECONDS` (default `1800`) for chat session root span expiry
   - `full`: existing `braintrust_adk` auto-instrumentation (verbose)
   - `lean`: explicit app spans only (invocation, handoff, llm_response_generation, tool_routing_decision)
 - Optional: Braintrust AI Gateway
@@ -66,6 +67,7 @@ flowchart TD
 
 Runtime notes:
 
+- Chat API tracing now uses session-root hierarchy: `Chat Session: <session_id>` -> `Turn <n>` -> existing supervisor/ADK spans.
 - Handoff spans remain explicit and stable: `handoff [ResearchAgent]`, `handoff [MathAgent]`.
 - Critic validation is in-loop before final return, with `critic [CriticAgent]` task spans.
 - Returned payload contract includes `final_output` and `messages`.

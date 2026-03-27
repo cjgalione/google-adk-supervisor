@@ -2,6 +2,7 @@ import asyncio
 
 from src.adapters import supervisor_adapter as adapter_mod
 from src.api.chat_api import ChatAPI
+from src.umbrella_capabilities.multi_turn import session_store as store_mod
 
 
 async def _assert_raises_value_error(coro):
@@ -116,31 +117,53 @@ def test_chat_api_validates_payload_and_merges_workflow_name():
     assert reset == {"ok": True, "session_id": "session-1"}
 
 
-def test_adapter_emits_trace_span(monkeypatch):
-    captured = {"start": None, "logged": None}
-
-    class _Span:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def log(self, *args, **kwargs):
-            _ = args
-            captured["logged"] = kwargs
+def test_adapter_emits_session_root_and_turn_hierarchy(monkeypatch):
+    created: list[dict] = []
 
     class _SpanType:
         TASK = "task"
 
+    class _FakeSpan:
+        def __init__(self, *, name, type, input, metadata, parent=None):
+            self.name = name
+            self.type = type
+            self.input = input
+            self.metadata = metadata
+            self.parent = parent
+            self.logs = []
+            self.ended = False
+            created.append(
+                {
+                    "name": name,
+                    "parent": getattr(parent, "name", None),
+                    "span": self,
+                }
+            )
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            return False
+
+        def log(self, **kwargs):
+            self.logs.append(kwargs)
+
+        def end(self):
+            self.ended = True
+
+        def start_span(self, *, name, type, input, metadata):
+            return _FakeSpan(
+                name=name,
+                type=type,
+                input=input,
+                metadata=metadata,
+                parent=self,
+            )
+
     def fake_start_span(*, name, type, input, metadata):
-        captured["start"] = {
-            "name": name,
-            "type": type,
-            "input": input,
-            "metadata": metadata,
-        }
-        return _Span()
+        return _FakeSpan(name=name, type=type, input=input, metadata=metadata, parent=None)
 
     async def fake_run_supervisor_with_critic(*, supervisor, query, app_name):
         _ = (supervisor, query, app_name)
@@ -157,10 +180,104 @@ def test_adapter_emits_trace_span(monkeypatch):
     monkeypatch.setattr(adapter_mod, "configure_adk_tracing", lambda **_: None)
 
     adapter = adapter_mod.RuntimeSupervisorAdapter(supervisor=object())
-    result = asyncio.run(adapter.handle_turn(None, "regular question", {"source": "trace-test"}))
+    first = asyncio.run(adapter.handle_turn(None, "regular question", {"source": "trace-test"}))
+    second = asyncio.run(adapter.handle_turn(first.session_id, "follow up", {"source": "trace-test"}))
 
-    assert result.assistant_message == "traced output"
-    assert captured["start"] is not None
-    assert captured["start"]["name"] == "chat_turn [google-adk-supervisor]"
-    assert captured["logged"] is not None
-    assert "output" in captured["logged"]
+    assert first.assistant_message == "traced output"
+    assert second.assistant_message == "traced output"
+
+    roots = [row for row in created if str(row["name"]).startswith("Chat Session:")]
+    turns = [row for row in created if str(row["name"]).startswith("Turn ")]
+    assert len(roots) == 1
+    assert len(turns) == 2
+    assert turns[0]["parent"] == roots[0]["name"]
+    assert turns[1]["parent"] == roots[0]["name"]
+
+    assert adapter.reset_session(first.session_id) is True
+    root_span = roots[0]["span"]
+    assert root_span.ended is True
+    assert any(
+        log.get("output", {}).get("ended_by") == "reset"
+        for log in root_span.logs
+    )
+
+
+def test_ttl_reap_closes_old_session_roots(monkeypatch):
+    created: list[dict] = []
+
+    class _SpanType:
+        TASK = "task"
+
+    class _Clock:
+        def __init__(self, now: float):
+            self.now = now
+
+        def __call__(self) -> float:
+            return self.now
+
+    class _FakeSpan:
+        def __init__(self, *, name, type, input, metadata, parent=None):
+            self.name = name
+            self.type = type
+            self.input = input
+            self.metadata = metadata
+            self.parent = parent
+            self.logs = []
+            self.ended = False
+            created.append(
+                {
+                    "name": name,
+                    "parent": getattr(parent, "name", None),
+                    "span": self,
+                }
+            )
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            return False
+
+        def log(self, **kwargs):
+            self.logs.append(kwargs)
+
+        def end(self):
+            self.ended = True
+
+        def start_span(self, *, name, type, input, metadata):
+            return _FakeSpan(name=name, type=type, input=input, metadata=metadata, parent=self)
+
+    def fake_start_span(*, name, type, input, metadata):
+        return _FakeSpan(name=name, type=type, input=input, metadata=metadata, parent=None)
+
+    async def fake_run_supervisor_with_critic(*, supervisor, query, app_name):
+        _ = (supervisor, query, app_name)
+        return {
+            "final_output": "ok",
+            "messages": [],
+            "critic_decision": {},
+            "critic_corrected": False,
+        }
+
+    clock = _Clock(100.0)
+    monkeypatch.setenv("CHAT_SESSION_TTL_SECONDS", "1")
+    monkeypatch.setattr(adapter_mod, "_BT_START_SPAN", fake_start_span)
+    monkeypatch.setattr(adapter_mod, "_BT_SPAN_TYPE", _SpanType)
+    monkeypatch.setattr(adapter_mod, "run_supervisor_with_critic", fake_run_supervisor_with_critic)
+    monkeypatch.setattr(adapter_mod, "configure_adk_tracing", lambda **_: None)
+    monkeypatch.setattr(adapter_mod.time, "time", clock)
+    monkeypatch.setattr(store_mod.time, "time", clock)
+
+    adapter = adapter_mod.RuntimeSupervisorAdapter(supervisor=object())
+    first = asyncio.run(adapter.handle_turn(None, "first", {}))
+
+    clock.now = 102.0
+    _ = asyncio.run(adapter.handle_turn(None, "second", {}))
+
+    old_root_name = f"Chat Session: {first.session_id}"
+    old_root_rows = [row for row in created if row["name"] == old_root_name]
+    assert len(old_root_rows) == 1
+    old_root_span = old_root_rows[0]["span"]
+    assert old_root_span.ended is True
+    assert any(log.get("output", {}).get("ended_by") == "ttl" for log in old_root_span.logs)
