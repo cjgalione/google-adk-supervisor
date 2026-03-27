@@ -72,21 +72,37 @@ def _session_ttl_seconds() -> int:
     return value if value > 0 else 1800
 
 
-def _format_history_messages(messages: list[dict[str, Any]]) -> str:
-    rows: list[str] = []
+def _coerce_history_window(raw_window: Any) -> int:
+    if not isinstance(raw_window, int):
+        return 8
+    if raw_window < 0:
+        return 8
+    # Keep bounded so a single request cannot explode token usage.
+    return min(raw_window, 20)
+
+
+def _normalize_chat_history(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
     for message in messages:
-        role = str(message.get("role", "unknown")).strip().lower() or "unknown"
+        role = str(message.get("role", "")).strip().lower()
+        if role not in {"user", "assistant"}:
+            continue
         content = str(message.get("content", "")).strip()
         if not content:
             continue
-        if role == "assistant":
-            label = "Assistant"
-        elif role == "user":
-            label = "User"
-        else:
-            label = role.capitalize()
-        rows.append(f"{label}: {content}")
-    return "\n".join(rows)
+        normalized.append({"role": role, "content": content})
+    return normalized
+
+
+def _summarize_older_history(messages: list[dict[str, Any]]) -> str:
+    if not messages:
+        return ""
+    user_turns = sum(1 for message in messages if str(message.get("role", "")).strip().lower() == "user")
+    assistant_turns = sum(1 for message in messages if str(message.get("role", "")).strip().lower() == "assistant")
+    return (
+        f"{user_turns} earlier user turns and {assistant_turns} assistant turns were omitted "
+        "from chat_history due to history_window."
+    )
 
 
 class RuntimeSupervisorAdapter:
@@ -206,11 +222,8 @@ class RuntimeSupervisorAdapter:
         self._close_session_root_span(session_id=session_id, state=state, reason="reset")
         return True
 
-    def _build_contextual_query(self, messages: list[dict[str, Any]], metadata: dict[str, Any]) -> str:
-        history_window = metadata.get("history_window", 8)
-        if not isinstance(history_window, int) or history_window < 0:
-            history_window = 8
-
+    def _build_turn_payload(self, messages: list[dict[str, Any]], metadata: dict[str, Any]) -> dict[str, Any]:
+        history_window = _coerce_history_window(metadata.get("history_window", 8))
         latest_message = next(
             (
                 str(message.get("content", "")).strip()
@@ -222,20 +235,22 @@ class RuntimeSupervisorAdapter:
         if not latest_message:
             raise ValueError("No user message available for the current turn")
 
-        # Use recent turns to provide multi-turn continuity while avoiding giant prompts.
         prior_messages = messages[:-1]
         history_slice = prior_messages[-(history_window * 2) :] if history_window else []
-        history_text = _format_history_messages(history_slice)
+        chat_history = _normalize_chat_history(history_slice)
 
-        if not history_text:
-            return latest_message
+        summary_from_metadata = metadata.get("history_summary")
+        history_summary = str(summary_from_metadata).strip() if isinstance(summary_from_metadata, str) else ""
+        if not history_summary:
+            omitted_count = max(0, len(prior_messages) - len(history_slice))
+            if omitted_count:
+                history_summary = _summarize_older_history(prior_messages[:omitted_count])
 
-        return (
-            "You are continuing an ongoing conversation.\n"
-            "Use the previous turns as context, then answer the latest user message directly.\n\n"
-            f"Conversation so far:\n{history_text}\n\n"
-            f"Latest user message:\n{latest_message}"
-        )
+        return {
+            "input": latest_message,
+            "chat_history": chat_history,
+            "history_summary": history_summary,
+        }
 
     def _matching_subagent(self, user_input: str) -> tuple[str, SubagentHandler] | None:
         lowered = user_input.lower()
@@ -291,7 +306,7 @@ class RuntimeSupervisorAdapter:
                         }
                     ]
                 else:
-                    contextual_query = self._build_contextual_query(state.messages, metadata)
+                    turn_payload = self._build_turn_payload(state.messages, metadata)
                     app_name = str(
                         metadata.get("workflow_name")
                         or metadata.get("app_name")
@@ -302,7 +317,7 @@ class RuntimeSupervisorAdapter:
 
                     run_result = await run_supervisor_with_critic(
                         supervisor=self._supervisor,
-                        query=contextual_query,
+                        chat_payload=turn_payload,
                         app_name=app_name,
                     )
 

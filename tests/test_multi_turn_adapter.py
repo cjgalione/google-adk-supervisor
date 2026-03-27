@@ -16,11 +16,12 @@ async def _assert_raises_value_error(coro):
 def test_handle_turn_reuses_session_and_includes_recent_history(monkeypatch):
     calls: list[dict] = []
 
-    async def fake_run_supervisor_with_critic(*, supervisor, query, app_name):
+    async def fake_run_supervisor_with_critic(*, supervisor, app_name, query=None, chat_payload=None):
         calls.append(
             {
                 "supervisor": supervisor,
                 "query": query,
+                "chat_payload": chat_payload,
                 "app_name": app_name,
             }
         )
@@ -43,9 +44,17 @@ def test_handle_turn_reuses_session_and_includes_recent_history(monkeypatch):
     assert first.session_id == second.session_id
     assert len(calls) == 2
     assert calls[0]["supervisor"] is supervisor
-    assert calls[1]["query"].startswith("You are continuing an ongoing conversation.")
-    assert "User: hello" in calls[1]["query"]
-    assert "Assistant: reply-1" in calls[1]["query"]
+    assert calls[0]["chat_payload"] == {
+        "input": "hello",
+        "chat_history": [],
+        "history_summary": "",
+    }
+    assert calls[1]["chat_payload"]["input"] == "what about before?"
+    assert calls[1]["chat_payload"]["chat_history"] == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "reply-1"},
+    ]
+    assert calls[1]["chat_payload"]["history_summary"] == ""
     assert first.session_id in calls[1]["app_name"]
 
 
@@ -165,8 +174,8 @@ def test_adapter_emits_session_root_and_turn_hierarchy(monkeypatch):
     def fake_start_span(*, name, type, input, metadata):
         return _FakeSpan(name=name, type=type, input=input, metadata=metadata, parent=None)
 
-    async def fake_run_supervisor_with_critic(*, supervisor, query, app_name):
-        _ = (supervisor, query, app_name)
+    async def fake_run_supervisor_with_critic(*, supervisor, app_name, query=None, chat_payload=None):
+        _ = (supervisor, app_name, query, chat_payload)
         return {
             "final_output": "traced output",
             "messages": [],
@@ -251,8 +260,8 @@ def test_ttl_reap_closes_old_session_roots(monkeypatch):
     def fake_start_span(*, name, type, input, metadata):
         return _FakeSpan(name=name, type=type, input=input, metadata=metadata, parent=None)
 
-    async def fake_run_supervisor_with_critic(*, supervisor, query, app_name):
-        _ = (supervisor, query, app_name)
+    async def fake_run_supervisor_with_critic(*, supervisor, app_name, query=None, chat_payload=None):
+        _ = (supervisor, app_name, query, chat_payload)
         return {
             "final_output": "ok",
             "messages": [],

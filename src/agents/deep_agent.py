@@ -797,21 +797,93 @@ def get_supervisor(config: AgentConfig | None = None, force_rebuild: bool = Fals
     return _cached_deep_agent
 
 
+def _normalize_chat_payload(
+    *,
+    query: str | None,
+    chat_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if chat_payload is not None:
+        input_text = str(chat_payload.get("input", "")).strip()
+        if not input_text:
+            raise ValueError("chat_payload.input must be non-empty")
+        raw_history = chat_payload.get("chat_history")
+        history: list[dict[str, str]] = []
+        if isinstance(raw_history, list):
+            for message in raw_history:
+                if not isinstance(message, dict):
+                    continue
+                role = str(message.get("role", "")).strip().lower()
+                if role not in {"user", "assistant"}:
+                    continue
+                content = str(message.get("content", "")).strip()
+                if not content:
+                    continue
+                history.append({"role": role, "content": content})
+
+        summary = str(chat_payload.get("history_summary", "")).strip()
+        return {
+            "input": input_text,
+            "chat_history": history,
+            "history_summary": summary,
+        }
+
+    fallback_query = str(query or "").strip()
+    if not fallback_query:
+        raise ValueError("query or chat_payload.input is required")
+    return {
+        "input": fallback_query,
+        "chat_history": [],
+        "history_summary": "",
+    }
+
+
+def _chat_payload_to_query(payload: dict[str, Any]) -> str:
+    user_input = str(payload.get("input", "")).strip()
+    chat_history = payload.get("chat_history", [])
+    history_summary = str(payload.get("history_summary", "")).strip()
+
+    context_payload: dict[str, Any] = {
+        "input": user_input,
+        "chat_history": chat_history if isinstance(chat_history, list) else [],
+    }
+    if history_summary:
+        context_payload["history_summary"] = history_summary
+
+    context_json = json.dumps(context_payload, ensure_ascii=False)
+    return (
+        "You are continuing an ongoing conversation.\n"
+        "Use the structured chat context JSON to answer the latest user input.\n"
+        "Prefer chat_history for recent details and history_summary for older context.\n"
+        "Do not ask for context already present in chat_history unless it is actually ambiguous.\n\n"
+        f"Conversation context JSON:\n{context_json}"
+    )
+
+
 async def run_supervisor_with_critic(
     *,
     supervisor: Agent,
-    query: str,
     app_name: str,
+    query: str | None = None,
+    chat_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run supervisor, then enforce delegation policy with critic validation."""
+    normalized_payload = _normalize_chat_payload(query=query, chat_payload=chat_payload)
+    query_text = _chat_payload_to_query(normalized_payload)
+    latest_user_input = str(normalized_payload.get("input", "")).strip()
+
     with start_span(
         name="invocation [supervisor_with_critic]",
         type=SpanTypeAttribute.TASK,
-        input={"query": query, "app_name": app_name},
+        input={
+            "app_name": app_name,
+            "input": latest_user_input,
+            "chat_history": normalized_payload.get("chat_history", []),
+            "history_summary": normalized_payload.get("history_summary", ""),
+        },
     ) as root_span:
         candidate = await run_adk_agent(
             agent=supervisor,
-            query=query,
+            query=query_text,
             app_name=app_name,
         )
         candidate_output = str(candidate.get("final_output", "")).strip()
@@ -819,9 +891,9 @@ async def run_supervisor_with_critic(
 
         validator = getattr(supervisor, "_validate_and_correct", None)
         if callable(validator):
-            validated = await validator(query, candidate_output, candidate_messages)
+            validated = await validator(latest_user_input, candidate_output, candidate_messages)
         else:
-            fallback_decision = _fallback_critic_decision(query, candidate_messages)
+            fallback_decision = _fallback_critic_decision(latest_user_input, candidate_messages)
             validated = {
                 "final_output": candidate_output,
                 "messages": candidate_messages,
