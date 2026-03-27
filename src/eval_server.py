@@ -81,6 +81,8 @@ def braintrust_eval_server():
     from starlette.routing import Route
 
     import evals
+    from src.adapters.supervisor_adapter import RuntimeSupervisorAdapter
+    from src.api.chat_api import ChatAPI
     from src.agents.deep_agent import get_supervisor, run_supervisor_with_critic
     from src.tracing import configure_adk_tracing
 
@@ -132,13 +134,19 @@ def braintrust_eval_server():
         max_age=86400,
     )
 
-    # Configure tracing profile for interactive requests.
+    # Configure tracing profile for interactive + chat requests.
     configure_adk_tracing(
         api_key=os.environ.get("BRAINTRUST_API_KEY"),
         project_id=os.environ.get("BRAINTRUST_PROJECT_ID"),
         project_name=os.environ.get("BRAINTRUST_PROJECT", "google-adk-supervisor"),
     )
     supervisor = get_supervisor(force_rebuild=True)
+    chat_api = ChatAPI(
+        adapter=RuntimeSupervisorAdapter(
+            supervisor=supervisor,
+            default_app_name="google-adk-supervisor-interactive",
+        )
+    )
 
     async def interactive_page(_: Request) -> HTMLResponse:
         html = """
@@ -216,8 +224,44 @@ def braintrust_eval_server():
             }
         )
 
+    async def v1_chat_turn(request: Request) -> JSONResponse:
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+        if not isinstance(payload, dict):
+            return JSONResponse({"error": "JSON payload must be an object"}, status_code=400)
+
+        try:
+            result = await chat_api.chat_turn(payload)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        except Exception as exc:
+            return JSONResponse({"error": f"Failed to process chat turn: {exc}"}, status_code=500)
+
+        return JSONResponse(result)
+
+    async def v1_chat_reset(request: Request) -> JSONResponse:
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+        if not isinstance(payload, dict):
+            return JSONResponse({"error": "JSON payload must be an object"}, status_code=400)
+
+        try:
+            result = chat_api.chat_reset(payload)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+        return JSONResponse(result)
+
     app.router.routes.append(Route("/interactive", interactive_page, methods=["GET"]))
     app.router.routes.append(Route("/interactive/query", interactive_query, methods=["POST"]))
+    app.router.routes.append(Route("/v1/chat/turn", v1_chat_turn, methods=["POST"]))
+    app.router.routes.append(Route("/v1/chat/reset", v1_chat_reset, methods=["POST"]))
     return app
 
 
