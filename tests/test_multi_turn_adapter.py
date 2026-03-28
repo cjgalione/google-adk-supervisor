@@ -131,6 +131,17 @@ def test_chat_api_validates_payload_and_merges_workflow_name():
     assert result["session_id"] == "session-1"
     assert fake_adapter.calls[0]["metadata"]["source"] == "unit-test"
     assert fake_adapter.calls[0]["metadata"]["workflow_name"] == "chat-test-flow"
+    assert fake_adapter.calls[0]["session_id"] == "existing-session"
+
+    asyncio.run(
+        api.chat_turn(
+            {
+                "session_id": 12345,
+                "message": "hello again",
+            }
+        )
+    )
+    assert fake_adapter.calls[1]["session_id"] == "12345"
 
     reset = api.chat_reset({"session_id": "session-1"})
     assert reset == {"ok": True, "session_id": "session-1"}

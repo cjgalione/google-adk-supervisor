@@ -16,6 +16,11 @@ class ChatAPI:
         if not message:
             raise ValueError("Missing non-empty `message`")
 
+        raw_session_id = payload.get("session_id")
+        session_id = (
+            str(raw_session_id).strip() if raw_session_id is not None else ""
+        ) or None
+
         context = payload.get("context")
         metadata = dict(context) if isinstance(context, dict) else {}
         workflow_name = str(payload.get("workflow_name", "")).strip()
@@ -23,7 +28,7 @@ class ChatAPI:
             metadata.setdefault("workflow_name", workflow_name)
 
         result = await self._adapter.handle_turn(
-            session_id=payload.get("session_id"),
+            session_id=session_id,
             user_input=message,
             metadata=metadata,
         )
