@@ -18,9 +18,23 @@ project_root = Path(__file__).resolve().parents[1]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.agent_graph import get_supervisor, run_supervisor_with_critic
-from src.config import AgentConfig
-from src.tracing import configure_adk_tracing
+
+def _load_local_modules():
+    from src.agent_graph import get_supervisor, run_supervisor_with_critic
+    from src.config import AgentConfig
+    from src.tracing import configure_adk_tracing
+
+    return (
+        AgentConfig,
+        configure_adk_tracing,
+        get_supervisor,
+        run_supervisor_with_critic,
+    )
+
+
+AgentConfig, configure_adk_tracing, get_supervisor, run_supervisor_with_critic = (
+    _load_local_modules()
+)
 
 DEFAULT_PROJECT = "google-adk-supervisor"
 DEFAULT_SUPERVISOR_MODEL = "gemini-2.0-flash-lite"
@@ -49,7 +63,9 @@ def _parse_metadata(
 
     for pair in metadata_kv or []:
         if "=" not in pair:
-            raise ValueError(f"Invalid --trace-metadata entry (expected key=value): {pair}")
+            raise ValueError(
+                f"Invalid --trace-metadata entry (expected key=value): {pair}"
+            )
         key, raw_value = pair.split("=", 1)
         key = key.strip()
         if not key:
@@ -106,7 +122,9 @@ async def _run(args: argparse.Namespace) -> None:
 def main() -> None:
     load_dotenv()
 
-    parser = argparse.ArgumentParser(description="Run one retest query through the supervisor.")
+    parser = argparse.ArgumentParser(
+        description="Run one retest query through the supervisor."
+    )
     parser.add_argument(
         "--query",
         required=True,

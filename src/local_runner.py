@@ -46,7 +46,9 @@ async def _run_chat() -> None:
         configure_adk_tracing(
             api_key=os.environ.get("BRAINTRUST_API_KEY"),
             project_id=os.environ.get("BRAINTRUST_PROJECT_ID"),
-            project_name=os.environ.get("BRAINTRUST_PROJECT", DEFAULT_BRAINTRUST_PROJECT),
+            project_name=os.environ.get(
+                "BRAINTRUST_PROJECT", DEFAULT_BRAINTRUST_PROJECT
+            ),
         )
 
     console = Console()

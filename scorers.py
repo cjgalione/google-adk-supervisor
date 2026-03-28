@@ -92,7 +92,11 @@ def _latest_assistant_text(output_payload: Any) -> str:
     messages = output_payload.get("messages", [])
     if isinstance(messages, list):
         for msg in reversed(messages):
-            if isinstance(msg, dict) and msg.get("role") == "assistant" and msg.get("content"):
+            if (
+                isinstance(msg, dict)
+                and msg.get("role") == "assistant"
+                and msg.get("content")
+            ):
                 return str(msg.get("content"))
 
     content = output_payload.get("content")

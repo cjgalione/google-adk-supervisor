@@ -43,8 +43,8 @@ braintrust eval evals/eval_supervisor.py --no-send-logs
 
 Expected startup logs:
 
-- `✓ Braintrust parameter schema is natively compatible; patch skipped`
+- `Braintrust parameter schema is natively compatible; patch skipped`
 or
-- `✓ Applied Braintrust parameter compatibility patch`
+- `Applied Braintrust parameter compatibility patch`
 
 Either message indicates the parameter serialization path is configured.

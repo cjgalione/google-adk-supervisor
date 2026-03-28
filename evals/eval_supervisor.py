@@ -46,6 +46,7 @@ configure_adk_tracing(
 
 client = wrap_openai(make_wrapped_openai_client())
 
+
 async def run_supervisor_task(input: dict, hooks: Any = None) -> dict[str, Any]:
     """Run a single task through the supervisor and return serialized messages."""
     try:
@@ -126,7 +127,9 @@ def _query_requires_research_handoff(query: str) -> bool:
         )
     ):
         return True
-    return bool(re.search(r"\b(who|what|when|where)\b", q)) and (not _query_requires_math_handoff(query))
+    return bool(re.search(r"\b(who|what|when|where)\b", q)) and (
+        not _query_requires_math_handoff(query)
+    )
 
 
 def _output_messages(output: Any) -> list[dict[str, Any]]:
@@ -138,7 +141,9 @@ def _output_messages(output: Any) -> list[dict[str, Any]]:
     return [m for m in messages if isinstance(m, dict)]
 
 
-def _has_message_marker(messages: list[dict[str, Any]], markers: tuple[str, ...]) -> bool:
+def _has_message_marker(
+    messages: list[dict[str, Any]], markers: tuple[str, ...]
+) -> bool:
     lowered = tuple(m.lower() for m in markers)
     for message in messages:
         content = str(message.get("content", "") or "").lower()
@@ -179,7 +184,11 @@ async def delegation_compliance_scorer(input, output, expected, metadata, trace)
     )
     has_research_handoff = _has_message_marker(
         messages,
-        ("delegate_to_research_agent", "request_research_subtask", "handoff [researchagent]"),
+        (
+            "delegate_to_research_agent",
+            "request_research_subtask",
+            "handoff [researchagent]",
+        ),
     )
     has_web_marker = _has_message_marker(
         messages,
@@ -391,7 +400,11 @@ def _latest_assistant_text(output: Any) -> str:
     if not isinstance(messages, list):
         return ""
     for msg in reversed(messages):
-        if isinstance(msg, dict) and msg.get("role") == "assistant" and msg.get("content"):
+        if (
+            isinstance(msg, dict)
+            and msg.get("role") == "assistant"
+            and msg.get("content")
+        ):
             return str(msg.get("content"))
     return ""
 
@@ -568,9 +581,9 @@ def get_eval_data(project_name: str):
 
 project_name = os.environ.get("BRAINTRUST_PROJECT", DEFAULT_BRAINTRUST_PROJECT)
 
-use_published_step_scorer = (
-    os.environ.get("USE_PUBLISHED_STEP_SCORER", "1").lower() in {"1", "true", "yes"}
-)
+use_published_step_scorer = os.environ.get(
+    "USE_PUBLISHED_STEP_SCORER", "1"
+).lower() in {"1", "true", "yes"}
 step_efficiency_score = (
     init_function(project_name=project_name, slug="step-efficiency")
     if use_published_step_scorer

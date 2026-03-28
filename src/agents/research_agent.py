@@ -68,7 +68,9 @@ def get_research_agent(
     extra_tools: list[Callable[..., Any]] | None = None,
 ) -> Agent:
     """Create the research agent with optional custom prompt and model."""
-    prompt = system_prompt if system_prompt is not None else DEFAULT_RESEARCH_AGENT_PROMPT
+    prompt = (
+        system_prompt if system_prompt is not None else DEFAULT_RESEARCH_AGENT_PROMPT
+    )
 
     tools: list[Callable[..., Any]] = [tavily_search]
     if extra_tools:

@@ -44,7 +44,10 @@ def test_apply_parameter_patch_overrides_when_native_is_incompatible(monkeypatch
         lambda: False,
     )
     assert patch_mod.apply_parameter_patch(verbose=False) is True
-    assert params_module.parameters_to_json_schema is patch_mod.patched_parameters_to_json_schema
+    assert (
+        params_module.parameters_to_json_schema
+        is patch_mod.patched_parameters_to_json_schema
+    )
 
     # Restore function for test isolation.
     monkeypatch.setattr(params_module, "parameters_to_json_schema", original)
