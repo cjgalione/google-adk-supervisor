@@ -21,9 +21,23 @@ project_root = Path(__file__).resolve().parents[1]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.config import AgentConfig
-from src.agent_graph import run_supervisor_with_critic
-from src.tracing import configure_adk_tracing
+
+def _load_local_modules():
+    from src.agent_graph import get_supervisor, run_supervisor_with_critic
+    from src.config import AgentConfig
+    from src.tracing import configure_adk_tracing
+
+    return (
+        AgentConfig,
+        configure_adk_tracing,
+        get_supervisor,
+        run_supervisor_with_critic,
+    )
+
+
+AgentConfig, configure_adk_tracing, get_supervisor, run_supervisor_with_critic = (
+    _load_local_modules()
+)
 
 load_dotenv()
 
@@ -79,7 +93,11 @@ def _fallback_questions(num_questions: int, rng: random.Random) -> list[str]:
 
 def _is_resource_exhausted_error(exc: Exception) -> bool:
     text = str(exc).lower()
-    return "resource_exhausted" in text or "quota exceeded" in text or "error code 429" in text
+    return (
+        "resource_exhausted" in text
+        or "quota exceeded" in text
+        or "error code 429" in text
+    )
 
 
 def _is_hard_quota_exhausted(exc: Exception) -> bool:
@@ -160,7 +178,6 @@ async def run_question(
     base_retry_seconds: float,
 ) -> tuple[str, bool, bool]:
     """Run one question through the supervisor with a random model assignment."""
-    from src.agent_graph import get_supervisor
 
     selected_model = random.choice(MODEL_POOL)
     config = AgentConfig(
@@ -209,7 +226,9 @@ async def main_async(args: argparse.Namespace) -> None:
             print(reason)
             return
 
-    num_questions = args.num_questions if args.num_questions is not None else random.randint(1, 100)
+    num_questions = (
+        args.num_questions if args.num_questions is not None else random.randint(1, 100)
+    )
     questions = generate_questions(num_questions=num_questions, seed=args.seed)
 
     print(f"Generated {len(questions)} questions")
@@ -243,7 +262,9 @@ async def main_async(args: argparse.Namespace) -> None:
             if hard_stop:
                 hard_quota_stop = True
         if hard_quota_stop:
-            print("Hard quota exhausted; stopping remaining questions to avoid repeated 429s.")
+            print(
+                "Hard quota exhausted; stopping remaining questions to avoid repeated 429s."
+            )
             break
         if args.inter_question_delay_seconds > 0:
             await asyncio.sleep(args.inter_question_delay_seconds)
@@ -314,7 +335,9 @@ def main() -> None:
         configure_adk_tracing(
             api_key=os.environ.get("BRAINTRUST_API_KEY"),
             project_id=os.environ.get("BRAINTRUST_PROJECT_ID"),
-            project_name=os.environ.get("BRAINTRUST_PROJECT", DEFAULT_BRAINTRUST_PROJECT),
+            project_name=os.environ.get(
+                "BRAINTRUST_PROJECT", DEFAULT_BRAINTRUST_PROJECT
+            ),
         )
 
     asyncio.run(main_async(args))

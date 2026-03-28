@@ -124,9 +124,10 @@ def _is_native_parameter_schema_compatible() -> bool:
     if "properties" in probe_schema:
         return False
 
-    return probe.get("default") == "probe-default" and probe.get(
-        "description"
-    ) == "probe-description"
+    return (
+        probe.get("default") == "probe-default"
+        and probe.get("description") == "probe-description"
+    )
 
 
 def apply_parameter_patch(verbose: bool = True) -> bool:

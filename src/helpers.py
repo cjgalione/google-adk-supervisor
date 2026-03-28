@@ -116,7 +116,11 @@ def _serialize_event(event: Any) -> list[dict[str, Any]]:
                 {
                     "role": "tool",
                     "name": tool_name,
-                    "content": response if isinstance(response, str) else str(_safe_json(response)),
+                    "content": (
+                        response
+                        if isinstance(response, str)
+                        else str(_safe_json(response))
+                    ),
                 }
             )
 
@@ -153,7 +157,9 @@ def _tool_calls_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, 
     return tool_calls
 
 
-def _tool_responses_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _tool_responses_from_messages(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     tool_responses: list[dict[str, Any]] = []
     for message in messages:
         if message.get("role") != "tool":
@@ -196,7 +202,9 @@ async def run_adk_agent(
 
     async def _run_loop() -> None:
         nonlocal final_output
-        async for event in runner.run_async(user_id=uid, session_id=sid, new_message=user_msg):
+        async for event in runner.run_async(
+            user_id=uid, session_id=sid, new_message=user_msg
+        ):
             event_messages = _serialize_event(event)
             messages.extend(event_messages)
 
@@ -204,7 +212,9 @@ async def run_adk_agent(
                 tool_name = str(tc.get("name", "") or "")
                 if not tool_name:
                     continue
-                pending_tool_calls.setdefault(tool_name, []).append(_safe_json(tc.get("args", {})))
+                pending_tool_calls.setdefault(tool_name, []).append(
+                    _safe_json(tc.get("args", {}))
+                )
 
             if trace_profile == "lean":
                 for tc in _tool_calls_from_messages(event_messages):
@@ -232,7 +242,10 @@ async def run_adk_agent(
                     name=f"tool_execution [{tool_name}]",
                     type=SpanTypeAttribute.TOOL,
                     input=tool_input,
-                    metadata={"tool_name": tool_name, "source": "adk_function_response"},
+                    metadata={
+                        "tool_name": tool_name,
+                        "source": "adk_function_response",
+                    },
                 ) as tool_span:
                     tool_span.log(output={"content": tr.get("content", "")})
 
@@ -258,7 +271,10 @@ async def run_adk_agent(
             with start_span(
                 name="llm_response_generation",
                 type=SpanTypeAttribute.LLM,
-                input={"query": query, "agent_name": str(getattr(agent, "name", "") or "")},
+                input={
+                    "query": query,
+                    "agent_name": str(getattr(agent, "name", "") or ""),
+                },
             ) as llm_span:
                 await _run_loop()
                 llm_span.log(output={"final_output": final_output})

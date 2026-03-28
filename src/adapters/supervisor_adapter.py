@@ -10,7 +10,10 @@ from typing import Any, Callable, Iterator
 
 from src.agents.deep_agent import get_supervisor, run_supervisor_with_critic
 from src.tracing import configure_adk_tracing
-from src.umbrella_capabilities.multi_turn.session_store import SessionState, SessionStore
+from src.umbrella_capabilities.multi_turn.session_store import (
+    SessionState,
+    SessionStore,
+)
 
 try:
     from braintrust import SpanTypeAttribute as _BT_SPAN_TYPE
@@ -49,7 +52,9 @@ class _NoopSpan:
 
 
 @contextmanager
-def _top_level_span(name: str, input_payload: dict[str, Any], metadata: dict[str, Any]) -> Iterator[_NoopSpan]:
+def _top_level_span(
+    name: str, input_payload: dict[str, Any], metadata: dict[str, Any]
+) -> Iterator[_NoopSpan]:
     if _BT_START_SPAN is None or _BT_SPAN_TYPE is None:
         yield _NoopSpan()
         return
@@ -97,8 +102,16 @@ def _normalize_chat_history(messages: list[dict[str, Any]]) -> list[dict[str, st
 def _summarize_older_history(messages: list[dict[str, Any]]) -> str:
     if not messages:
         return ""
-    user_turns = sum(1 for message in messages if str(message.get("role", "")).strip().lower() == "user")
-    assistant_turns = sum(1 for message in messages if str(message.get("role", "")).strip().lower() == "assistant")
+    user_turns = sum(
+        1
+        for message in messages
+        if str(message.get("role", "")).strip().lower() == "user"
+    )
+    assistant_turns = sum(
+        1
+        for message in messages
+        if str(message.get("role", "")).strip().lower() == "assistant"
+    )
     return (
         f"{user_turns} earlier user turns and {assistant_turns} assistant turns were omitted "
         "from chat_history due to history_window."
@@ -142,11 +155,17 @@ class RuntimeSupervisorAdapter:
             pass
 
     def _reap_expired_sessions(self, now_ts: float) -> None:
-        expired = self._session_store.reap_expired(now_ts=now_ts, ttl_seconds=self._session_ttl_seconds)
+        expired = self._session_store.reap_expired(
+            now_ts=now_ts, ttl_seconds=self._session_ttl_seconds
+        )
         for session_id, state in expired:
-            self._close_session_root_span(session_id=session_id, state=state, reason="ttl")
+            self._close_session_root_span(
+                session_id=session_id, state=state, reason="ttl"
+            )
 
-    def _create_session_root_span(self, *, session_id: str, metadata: dict[str, Any]) -> Any | None:
+    def _create_session_root_span(
+        self, *, session_id: str, metadata: dict[str, Any]
+    ) -> Any | None:
         if _BT_START_SPAN is None or _BT_SPAN_TYPE is None:
             return None
 
@@ -165,7 +184,9 @@ class RuntimeSupervisorAdapter:
         except Exception:
             return None
 
-    def _close_session_root_span(self, *, session_id: str, state: SessionState, reason: str) -> None:
+    def _close_session_root_span(
+        self, *, session_id: str, state: SessionState, reason: str
+    ) -> None:
         span = state.session_root_span
         state.session_root_span = None
         if span is None:
@@ -201,17 +222,27 @@ class RuntimeSupervisorAdapter:
             "turn_index": turn_index,
             "metadata": metadata,
         }
-        if state.session_root_span is not None and hasattr(state.session_root_span, "start_span"):
+        if state.session_root_span is not None and hasattr(
+            state.session_root_span, "start_span"
+        ):
             return state.session_root_span.start_span(
                 name=f"Turn {turn_index}",
                 type=_BT_SPAN_TYPE.TASK if _BT_SPAN_TYPE is not None else None,
-                input={"session_id": session_id, "turn_index": turn_index, "message": message},
+                input={
+                    "session_id": session_id,
+                    "turn_index": turn_index,
+                    "message": message,
+                },
                 metadata=span_metadata,
             )
 
         return _top_level_span(
             name=f"Turn {turn_index}",
-            input_payload={"session_id": session_id, "turn_index": turn_index, "message": message},
+            input_payload={
+                "session_id": session_id,
+                "turn_index": turn_index,
+                "message": message,
+            },
             metadata=span_metadata,
         )
 
@@ -219,10 +250,14 @@ class RuntimeSupervisorAdapter:
         state = self._session_store.pop(session_id)
         if state is None:
             return False
-        self._close_session_root_span(session_id=session_id, state=state, reason="reset")
+        self._close_session_root_span(
+            session_id=session_id, state=state, reason="reset"
+        )
         return True
 
-    def _build_turn_payload(self, messages: list[dict[str, Any]], metadata: dict[str, Any]) -> dict[str, Any]:
+    def _build_turn_payload(
+        self, messages: list[dict[str, Any]], metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         history_window = _coerce_history_window(metadata.get("history_window", 8))
         latest_message = next(
             (
@@ -236,15 +271,23 @@ class RuntimeSupervisorAdapter:
             raise ValueError("No user message available for the current turn")
 
         prior_messages = messages[:-1]
-        history_slice = prior_messages[-(history_window * 2) :] if history_window else []
+        history_slice = (
+            prior_messages[-(history_window * 2) :] if history_window else []
+        )
         chat_history = _normalize_chat_history(history_slice)
 
         summary_from_metadata = metadata.get("history_summary")
-        history_summary = str(summary_from_metadata).strip() if isinstance(summary_from_metadata, str) else ""
+        history_summary = (
+            str(summary_from_metadata).strip()
+            if isinstance(summary_from_metadata, str)
+            else ""
+        )
         if not history_summary:
             omitted_count = max(0, len(prior_messages) - len(history_slice))
             if omitted_count:
-                history_summary = _summarize_older_history(prior_messages[:omitted_count])
+                history_summary = _summarize_older_history(
+                    prior_messages[:omitted_count]
+                )
 
         return {
             "input": latest_message,
@@ -273,7 +316,9 @@ class RuntimeSupervisorAdapter:
         self._reap_expired_sessions(now_ts)
 
         metadata = dict(metadata or {})
-        active_session_id, state = self._session_store.resolve(session_id, now_ts=now_ts)
+        active_session_id, state = self._session_store.resolve(
+            session_id, now_ts=now_ts
+        )
 
         if state.session_root_span is None:
             state.session_root_span = self._create_session_root_span(
@@ -297,7 +342,10 @@ class RuntimeSupervisorAdapter:
             try:
                 if matching_subagent is not None:
                     agent_id, handler = matching_subagent
-                    assistant_message = str(handler(message, metadata)).strip() or "(No response generated)"
+                    assistant_message = (
+                        str(handler(message, metadata)).strip()
+                        or "(No response generated)"
+                    )
                     events: list[dict[str, Any]] = [
                         {
                             "type": "subagent.response",
@@ -321,7 +369,10 @@ class RuntimeSupervisorAdapter:
                         app_name=app_name,
                     )
 
-                    assistant_message = str(run_result.get("final_output", "")).strip() or "(No response generated)"
+                    assistant_message = (
+                        str(run_result.get("final_output", "")).strip()
+                        or "(No response generated)"
+                    )
                     critic_decision = run_result.get("critic_decision", {})
                     events = [
                         {
@@ -329,13 +380,19 @@ class RuntimeSupervisorAdapter:
                             "repo_id": "google-adk-supervisor",
                             "session_id": active_session_id,
                             "turn_index": turn_index,
-                            "critic_corrected": bool(run_result.get("critic_corrected", False)),
+                            "critic_corrected": bool(
+                                run_result.get("critic_corrected", False)
+                            ),
                         }
                     ]
                     if critic_decision:
-                        events.append({"type": "critic.decision", "decision": critic_decision})
+                        events.append(
+                            {"type": "critic.decision", "decision": critic_decision}
+                        )
 
-                state.messages.append({"role": "assistant", "content": assistant_message})
+                state.messages.append(
+                    {"role": "assistant", "content": assistant_message}
+                )
                 state.last_seen_at = time.time()
                 turn_span.log(
                     output={

@@ -6,7 +6,6 @@ from typing import Any
 
 from src.adapters.supervisor_adapter import RuntimeSupervisorAdapter
 
-
 AGENT_ID = "braintrust_help"
 ROUTING_HINTS = [
     "braintrust",

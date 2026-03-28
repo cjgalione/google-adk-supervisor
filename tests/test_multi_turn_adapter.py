@@ -16,7 +16,9 @@ async def _assert_raises_value_error(coro):
 def test_handle_turn_reuses_session_and_includes_recent_history(monkeypatch):
     calls: list[dict] = []
 
-    async def fake_run_supervisor_with_critic(*, supervisor, app_name, query=None, chat_payload=None):
+    async def fake_run_supervisor_with_critic(
+        *, supervisor, app_name, query=None, chat_payload=None
+    ):
         calls.append(
             {
                 "supervisor": supervisor,
@@ -32,14 +34,18 @@ def test_handle_turn_reuses_session_and_includes_recent_history(monkeypatch):
             "critic_corrected": False,
         }
 
-    monkeypatch.setattr(adapter_mod, "run_supervisor_with_critic", fake_run_supervisor_with_critic)
+    monkeypatch.setattr(
+        adapter_mod, "run_supervisor_with_critic", fake_run_supervisor_with_critic
+    )
     monkeypatch.setattr(adapter_mod, "configure_adk_tracing", lambda **_: None)
 
     supervisor = object()
     adapter = adapter_mod.RuntimeSupervisorAdapter(supervisor=supervisor)
 
     first = asyncio.run(adapter.handle_turn(None, "hello", {}))
-    second = asyncio.run(adapter.handle_turn(first.session_id, "what about before?", {}))
+    second = asyncio.run(
+        adapter.handle_turn(first.session_id, "what about before?", {})
+    )
 
     assert first.session_id == second.session_id
     assert len(calls) == 2
@@ -60,9 +66,13 @@ def test_handle_turn_reuses_session_and_includes_recent_history(monkeypatch):
 
 def test_handle_turn_routes_braintrust_queries_to_subagent(monkeypatch):
     async def should_not_run_supervisor(**_):
-        raise AssertionError("Supervisor should not be called for braintrust subagent handoff")
+        raise AssertionError(
+            "Supervisor should not be called for braintrust subagent handoff"
+        )
 
-    monkeypatch.setattr(adapter_mod, "run_supervisor_with_critic", should_not_run_supervisor)
+    monkeypatch.setattr(
+        adapter_mod, "run_supervisor_with_critic", should_not_run_supervisor
+    )
     monkeypatch.setattr(adapter_mod, "configure_adk_tracing", lambda **_: None)
 
     adapter = adapter_mod.RuntimeSupervisorAdapter(supervisor=object())
@@ -172,9 +182,13 @@ def test_adapter_emits_session_root_and_turn_hierarchy(monkeypatch):
             )
 
     def fake_start_span(*, name, type, input, metadata):
-        return _FakeSpan(name=name, type=type, input=input, metadata=metadata, parent=None)
+        return _FakeSpan(
+            name=name, type=type, input=input, metadata=metadata, parent=None
+        )
 
-    async def fake_run_supervisor_with_critic(*, supervisor, app_name, query=None, chat_payload=None):
+    async def fake_run_supervisor_with_critic(
+        *, supervisor, app_name, query=None, chat_payload=None
+    ):
         _ = (supervisor, app_name, query, chat_payload)
         return {
             "final_output": "traced output",
@@ -185,12 +199,18 @@ def test_adapter_emits_session_root_and_turn_hierarchy(monkeypatch):
 
     monkeypatch.setattr(adapter_mod, "_BT_START_SPAN", fake_start_span)
     monkeypatch.setattr(adapter_mod, "_BT_SPAN_TYPE", _SpanType)
-    monkeypatch.setattr(adapter_mod, "run_supervisor_with_critic", fake_run_supervisor_with_critic)
+    monkeypatch.setattr(
+        adapter_mod, "run_supervisor_with_critic", fake_run_supervisor_with_critic
+    )
     monkeypatch.setattr(adapter_mod, "configure_adk_tracing", lambda **_: None)
 
     adapter = adapter_mod.RuntimeSupervisorAdapter(supervisor=object())
-    first = asyncio.run(adapter.handle_turn(None, "regular question", {"source": "trace-test"}))
-    second = asyncio.run(adapter.handle_turn(first.session_id, "follow up", {"source": "trace-test"}))
+    first = asyncio.run(
+        adapter.handle_turn(None, "regular question", {"source": "trace-test"})
+    )
+    second = asyncio.run(
+        adapter.handle_turn(first.session_id, "follow up", {"source": "trace-test"})
+    )
 
     assert first.assistant_message == "traced output"
     assert second.assistant_message == "traced output"
@@ -206,8 +226,7 @@ def test_adapter_emits_session_root_and_turn_hierarchy(monkeypatch):
     root_span = roots[0]["span"]
     assert root_span.ended is True
     assert any(
-        log.get("output", {}).get("ended_by") == "reset"
-        for log in root_span.logs
+        log.get("output", {}).get("ended_by") == "reset" for log in root_span.logs
     )
 
 
@@ -255,12 +274,18 @@ def test_ttl_reap_closes_old_session_roots(monkeypatch):
             self.ended = True
 
         def start_span(self, *, name, type, input, metadata):
-            return _FakeSpan(name=name, type=type, input=input, metadata=metadata, parent=self)
+            return _FakeSpan(
+                name=name, type=type, input=input, metadata=metadata, parent=self
+            )
 
     def fake_start_span(*, name, type, input, metadata):
-        return _FakeSpan(name=name, type=type, input=input, metadata=metadata, parent=None)
+        return _FakeSpan(
+            name=name, type=type, input=input, metadata=metadata, parent=None
+        )
 
-    async def fake_run_supervisor_with_critic(*, supervisor, app_name, query=None, chat_payload=None):
+    async def fake_run_supervisor_with_critic(
+        *, supervisor, app_name, query=None, chat_payload=None
+    ):
         _ = (supervisor, app_name, query, chat_payload)
         return {
             "final_output": "ok",
@@ -273,7 +298,9 @@ def test_ttl_reap_closes_old_session_roots(monkeypatch):
     monkeypatch.setenv("CHAT_SESSION_TTL_SECONDS", "1")
     monkeypatch.setattr(adapter_mod, "_BT_START_SPAN", fake_start_span)
     monkeypatch.setattr(adapter_mod, "_BT_SPAN_TYPE", _SpanType)
-    monkeypatch.setattr(adapter_mod, "run_supervisor_with_critic", fake_run_supervisor_with_critic)
+    monkeypatch.setattr(
+        adapter_mod, "run_supervisor_with_critic", fake_run_supervisor_with_critic
+    )
     monkeypatch.setattr(adapter_mod, "configure_adk_tracing", lambda **_: None)
     monkeypatch.setattr(adapter_mod.time, "time", clock)
     monkeypatch.setattr(store_mod.time, "time", clock)
@@ -289,4 +316,6 @@ def test_ttl_reap_closes_old_session_roots(monkeypatch):
     assert len(old_root_rows) == 1
     old_root_span = old_root_rows[0]["span"]
     assert old_root_span.ended is True
-    assert any(log.get("output", {}).get("ended_by") == "ttl" for log in old_root_span.logs)
+    assert any(
+        log.get("output", {}).get("ended_by") == "ttl" for log in old_root_span.logs
+    )

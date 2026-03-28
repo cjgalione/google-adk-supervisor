@@ -16,8 +16,8 @@ def test_resolve_adk_model_returns_gemini_with_gateway_url_when_enabled():
     )
     model = resolve_adk_model("gemini-2.0-flash-lite", config)
     assert model.__class__.__name__ == "GatewayGemini"
-    assert getattr(model, "model") == "gemini-2.0-flash-lite"
-    assert getattr(model, "base_url") == "https://gateway.braintrust.dev/v1"
+    assert model.model == "gemini-2.0-flash-lite"
+    assert model.base_url == "https://gateway.braintrust.dev/v1"
 
 
 def test_resolve_adk_model_returns_gateway_openai_for_openai_models():
@@ -28,7 +28,7 @@ def test_resolve_adk_model_returns_gateway_openai_for_openai_models():
     )
     model = resolve_adk_model("openai/gpt-5.4", config)
     assert model.__class__.__name__ == "GatewayOpenAI"
-    assert getattr(model, "model") == "openai/gpt-5.4"
+    assert model.model == "openai/gpt-5.4"
 
 
 def test_resolve_adk_model_routes_bare_openai_models_to_gateway_openai():
@@ -39,7 +39,7 @@ def test_resolve_adk_model_routes_bare_openai_models_to_gateway_openai():
     )
     model = resolve_adk_model("gpt-4o-mini", config)
     assert model.__class__.__name__ == "GatewayOpenAI"
-    assert getattr(model, "model") == "gpt-4o-mini"
+    assert model.model == "gpt-4o-mini"
 
 
 def test_resolve_adk_model_raises_if_gateway_key_missing():
@@ -78,7 +78,9 @@ def test_resolve_adk_model_includes_gateway_logging_headers(monkeypatch):
     assert headers["Authorization"] == "Bearer gateway-key"
 
 
-def test_resolve_adk_model_includes_openai_passthrough_key_for_openai_model(monkeypatch):
+def test_resolve_adk_model_includes_openai_passthrough_key_for_openai_model(
+    monkeypatch,
+):
     monkeypatch.setenv("BRAINTRUST_GATEWAY_API_KEY", "gateway-key")
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
     config = AgentConfig(
@@ -88,4 +90,4 @@ def test_resolve_adk_model_includes_openai_passthrough_key_for_openai_model(monk
     )
     model = resolve_adk_model("openai/gpt-5.4", config)
     assert model.__class__.__name__ == "GatewayOpenAI"
-    assert getattr(model, "model") == "openai/gpt-5.4"
+    assert model.model == "openai/gpt-5.4"

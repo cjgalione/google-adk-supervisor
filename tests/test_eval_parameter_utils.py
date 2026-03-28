@@ -135,7 +135,9 @@ def test_research_prompt_object_can_round_trip_into_agent_config():
     prompt = Prompt.from_prompt_data(
         "research_agent_prompt",
         PromptData(
-            prompt=PromptCompletionBlock(content="Research in Italian and include sources."),
+            prompt=PromptCompletionBlock(
+                content="Research in Italian and include sources."
+            ),
             options={"model": "gpt-4o-mini"},
         ),
     )

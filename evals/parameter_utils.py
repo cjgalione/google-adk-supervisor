@@ -57,7 +57,11 @@ def _prompt_content_to_text(content: Any) -> str | None:
     if isinstance(content, list):
         text_parts: list[str] = []
         for part in content:
-            text = part.get("text") if isinstance(part, dict) else getattr(part, "text", None)
+            text = (
+                part.get("text")
+                if isinstance(part, dict)
+                else getattr(part, "text", None)
+            )
             if isinstance(text, str) and text:
                 text_parts.append(text)
         if text_parts:
@@ -140,7 +144,11 @@ def extract_prompt_text_and_model(param: Any) -> tuple[str | None, str | None]:
             prompt_text = "\n\n".join(prompt_candidates)
 
     options = _prompt_options(param) or {}
-    model = options.get("model") if isinstance(options, dict) else getattr(options, "model", None)
+    model = (
+        options.get("model")
+        if isinstance(options, dict)
+        else getattr(options, "model", None)
+    )
 
     return prompt_text, model
 
@@ -175,7 +183,9 @@ def resolve_agent_config_overrides(params: dict[str, Any]) -> dict[str, Any]:
         ("research_agent_prompt", "research_model"),
         ("math_agent_prompt", "math_model"),
     ):
-        prompt_text, embedded_model = extract_prompt_text_and_model(params.get(prompt_key))
+        prompt_text, embedded_model = extract_prompt_text_and_model(
+            params.get(prompt_key)
+        )
         if prompt_text is not None:
             overrides[prompt_key] = prompt_text
         else:

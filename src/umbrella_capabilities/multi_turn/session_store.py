@@ -20,7 +20,9 @@ class SessionStore:
     def __init__(self) -> None:
         self._sessions: dict[str, SessionState] = {}
 
-    def resolve(self, session_id: str | None, now_ts: float | None = None) -> tuple[str, SessionState]:
+    def resolve(
+        self, session_id: str | None, now_ts: float | None = None
+    ) -> tuple[str, SessionState]:
         active_id = session_id or str(uuid4())
         state = self._sessions.setdefault(active_id, SessionState())
         state.last_seen_at = now_ts if now_ts is not None else time.time()
@@ -32,7 +34,9 @@ class SessionStore:
     def reset(self, session_id: str) -> bool:
         return self.pop(session_id) is not None
 
-    def reap_expired(self, *, now_ts: float, ttl_seconds: int) -> list[tuple[str, SessionState]]:
+    def reap_expired(
+        self, *, now_ts: float, ttl_seconds: int
+    ) -> list[tuple[str, SessionState]]:
         if ttl_seconds <= 0:
             return []
 

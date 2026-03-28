@@ -82,8 +82,8 @@ def braintrust_eval_server():
 
     import evals
     from src.adapters.supervisor_adapter import RuntimeSupervisorAdapter
-    from src.api.chat_api import ChatAPI
     from src.agents.deep_agent import get_supervisor, run_supervisor_with_critic
+    from src.api.chat_api import ChatAPI
     from src.tracing import configure_adk_tracing
 
     # Find all eval files in the evals directory
@@ -208,7 +208,9 @@ def braintrust_eval_server():
         if not query:
             return JSONResponse({"error": "Missing non-empty `query`"}, status_code=400)
 
-        workflow_name = str(payload.get("workflow_name", "google-adk-supervisor-interactive")).strip()
+        workflow_name = str(
+            payload.get("workflow_name", "google-adk-supervisor-interactive")
+        ).strip()
 
         run_result = await run_supervisor_with_critic(
             supervisor=supervisor,
@@ -231,14 +233,18 @@ def braintrust_eval_server():
             return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
 
         if not isinstance(payload, dict):
-            return JSONResponse({"error": "JSON payload must be an object"}, status_code=400)
+            return JSONResponse(
+                {"error": "JSON payload must be an object"}, status_code=400
+            )
 
         try:
             result = await chat_api.chat_turn(payload)
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
         except Exception as exc:
-            return JSONResponse({"error": f"Failed to process chat turn: {exc}"}, status_code=500)
+            return JSONResponse(
+                {"error": f"Failed to process chat turn: {exc}"}, status_code=500
+            )
 
         return JSONResponse(result)
 
@@ -249,7 +255,9 @@ def braintrust_eval_server():
             return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
 
         if not isinstance(payload, dict):
-            return JSONResponse({"error": "JSON payload must be an object"}, status_code=400)
+            return JSONResponse(
+                {"error": "JSON payload must be an object"}, status_code=400
+            )
 
         try:
             result = chat_api.chat_reset(payload)
@@ -259,7 +267,9 @@ def braintrust_eval_server():
         return JSONResponse(result)
 
     app.router.routes.append(Route("/interactive", interactive_page, methods=["GET"]))
-    app.router.routes.append(Route("/interactive/query", interactive_query, methods=["POST"]))
+    app.router.routes.append(
+        Route("/interactive/query", interactive_query, methods=["POST"])
+    )
     app.router.routes.append(Route("/v1/chat/turn", v1_chat_turn, methods=["POST"]))
     app.router.routes.append(Route("/v1/chat/reset", v1_chat_reset, methods=["POST"]))
     return app

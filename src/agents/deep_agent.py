@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import math
 import re
-import ast
 from typing import Any
 
 from braintrust import SpanTypeAttribute, start_span
@@ -18,7 +18,6 @@ from src.config import AgentConfig
 from src.helpers import run_adk_agent
 from src.model_resolver import resolve_adk_model
 
-
 _MATH_OPS = {
     "add": add,
     "subtract": subtract,
@@ -26,7 +25,12 @@ _MATH_OPS = {
     "divide": divide,
 }
 
-_CRITIC_ACTIONS = {"accept", "delegate_research", "delegate_math", "retry_with_instruction"}
+_CRITIC_ACTIONS = {
+    "accept",
+    "delegate_research",
+    "delegate_math",
+    "retry_with_instruction",
+}
 
 
 def _parse_number_token(token: str) -> float | None:
@@ -75,7 +79,9 @@ def _build_math_query(
 ) -> str:
     if _is_basic_math_operation(operation):
         if a is None or b is None:
-            raise ValueError("Basic arithmetic operations require both a and b operands.")
+            raise ValueError(
+                "Basic arithmetic operations require both a and b operands."
+            )
         if result_mode == "numeric":
             return (
                 f"Use operation '{operation}' on the values a={a} and b={b}. "
@@ -100,14 +106,22 @@ def _build_math_query(
         )
 
     if result_mode == "numeric":
-        context = f"Context values (if useful): a={a}, b={b}." if a is not None and b is not None else ""
+        context = (
+            f"Context values (if useful): a={a}, b={b}."
+            if a is not None and b is not None
+            else ""
+        )
         return (
             "Solve the following quantitative task and return the final numeric result. "
             f"Task: {operation}. "
             f"{context}"
         )
 
-    context = f"Context values (if useful): a={a}, b={b}." if a is not None and b is not None else ""
+    context = (
+        f"Context values (if useful): a={a}, b={b}."
+        if a is not None and b is not None
+        else ""
+    )
     return (
         "Solve the following math task and provide a concise explanation with the final answer. "
         f"Task: {operation}. "
@@ -123,7 +137,9 @@ def _run_math(operation: str, a: float, b: float) -> float:
 
 
 def _extract_float_from_text(text: str) -> float | None:
-    sci_caret_matches = re.findall(r"(-?\d+(?:\.\d+)?)\s*[x×]\s*10\^(-?\d+)", text, flags=re.IGNORECASE)
+    sci_caret_matches = re.findall(
+        r"(-?\d+(?:\.\d+)?)\s*[x×]\s*10\^(-?\d+)", text, flags=re.IGNORECASE
+    )
     if sci_caret_matches:
         base_s, exp_s = sci_caret_matches[-1]
         try:
@@ -204,7 +220,9 @@ def _safe_eval_numeric_expression(expression: str) -> float | None:
         return None
 
 
-def _handoff_span_metadata(*, target: str, input_data: dict[str, object]) -> dict[str, object]:
+def _handoff_span_metadata(
+    *, target: str, input_data: dict[str, object]
+) -> dict[str, object]:
     return {
         "target_agent": target,
         "handoff_input": input_data,
@@ -281,7 +299,9 @@ def _query_needs_research_handoff(query: str) -> bool:
     return keyword_match or wh_match
 
 
-def _fallback_critic_decision(query: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
+def _fallback_critic_decision(
+    query: str, messages: list[dict[str, Any]]
+) -> dict[str, Any]:
     needs_math = _query_needs_math_handoff(query)
     needs_research = _query_needs_research_handoff(query)
 
@@ -291,9 +311,15 @@ def _fallback_critic_decision(query: str, messages: list[dict[str, Any]]) -> dic
     )
     has_research_handoff = _has_marker(
         messages,
-        ("delegate_to_research_agent", "request_research_subtask", "handoff [researchagent]"),
+        (
+            "delegate_to_research_agent",
+            "request_research_subtask",
+            "handoff [researchagent]",
+        ),
     )
-    has_web_search = _has_marker(messages, ("tavily_search", "http://", "https://", "url:"))
+    has_web_search = _has_marker(
+        messages, ("tavily_search", "http://", "https://", "url:")
+    )
 
     if needs_math and not has_math_handoff:
         return {
@@ -307,7 +333,9 @@ def _fallback_critic_decision(query: str, messages: list[dict[str, Any]]) -> dic
             "required_action": "delegate_research",
             "rationale": "Research-style query requires ResearchAgent handoff and web-search evidence.",
         }
-    if (needs_math or needs_research) and not (has_math_handoff or has_research_handoff):
+    if (needs_math or needs_research) and not (
+        has_math_handoff or has_research_handoff
+    ):
         return {
             "compliant": False,
             "required_action": "retry_with_instruction",
@@ -320,13 +348,17 @@ def _fallback_critic_decision(query: str, messages: list[dict[str, Any]]) -> dic
     }
 
 
-def _messages_summary(messages: list[dict[str, Any]], limit: int = 14) -> list[dict[str, Any]]:
+def _messages_summary(
+    messages: list[dict[str, Any]], limit: int = 14
+) -> list[dict[str, Any]]:
     if len(messages) <= limit:
         return messages
     return messages[-limit:]
 
 
-def _normalize_critic_decision(raw: dict[str, Any], query: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
+def _normalize_critic_decision(
+    raw: dict[str, Any], query: str, messages: list[dict[str, Any]]
+) -> dict[str, Any]:
     fallback = _fallback_critic_decision(query, messages)
 
     compliant_raw = raw.get("compliant")
@@ -361,7 +393,9 @@ def _normalize_critic_decision(raw: dict[str, Any], query: str, messages: list[d
         return fallback
 
     if normalized["rationale"] == "No rationale provided by critic.":
-        normalized["rationale"] = str(fallback.get("rationale", normalized["rationale"]))
+        normalized["rationale"] = str(
+            fallback.get("rationale", normalized["rationale"])
+        )
     return normalized
 
 
@@ -398,7 +432,9 @@ def get_deep_agent(config: AgentConfig | None = None) -> Agent:
             )
             final_output = str(result.get("final_output", "")).strip()
             messages = result.get("messages", [])
-            handoff_span.log(output={"final_output": final_output, "messages": messages})
+            handoff_span.log(
+                output={"final_output": final_output, "messages": messages}
+            )
             return {"final_output": final_output, "messages": messages}
 
     async def _run_math_handoff(
@@ -421,9 +457,13 @@ def get_deep_agent(config: AgentConfig | None = None) -> Agent:
             raise ValueError("Provide a non-empty math_task (or operation alias).")
 
         if _is_basic_math_operation(resolved_operation) and (a is None or b is None):
-            raise ValueError("Basic arithmetic operations require both a and b operands.")
+            raise ValueError(
+                "Basic arithmetic operations require both a and b operands."
+            )
 
-        query = _build_math_query(operation=resolved_operation, a=a, b=b, result_mode=result_mode)
+        query = _build_math_query(
+            operation=resolved_operation, a=a, b=b, result_mode=result_mode
+        )
         input_payload: dict[str, object] = {"math_task": resolved_operation}
         metadata_input: dict[str, object] = {
             "math_task": resolved_operation,
@@ -458,9 +498,13 @@ def get_deep_agent(config: AgentConfig | None = None) -> Agent:
             parsed_result: float | None = parsed
 
             if result_mode == "numeric":
-                if parsed_result is None and _is_basic_math_operation(resolved_operation):
+                if parsed_result is None and _is_basic_math_operation(
+                    resolved_operation
+                ):
                     if a is None or b is None:
-                        raise ValueError("Basic arithmetic operations require both a and b operands.")
+                        raise ValueError(
+                            "Basic arithmetic operations require both a and b operands."
+                        )
                     parsed_result = _run_math(operation=resolved_operation, a=a, b=b)
                 if parsed_result is None:
                     # Retry once with stricter numeric-only instructions before failing.
@@ -480,7 +524,9 @@ def get_deep_agent(config: AgentConfig | None = None) -> Agent:
                         parsed_result = retry_parsed
                         final_text = retry_final or final_text
                 if parsed_result is None:
-                    heuristic = _fallback_numeric_from_operation_text(resolved_operation)
+                    heuristic = _fallback_numeric_from_operation_text(
+                        resolved_operation
+                    )
                     if heuristic is not None:
                         parsed_result = heuristic
                 if parsed_result is None:
@@ -504,8 +550,12 @@ def get_deep_agent(config: AgentConfig | None = None) -> Agent:
                     response_text = str(parsed_result)
                 elif _is_basic_math_operation(resolved_operation):
                     if a is None or b is None:
-                        raise ValueError("Basic arithmetic operations require both a and b operands.")
-                    response_text = str(_run_math(operation=resolved_operation, a=a, b=b))
+                        raise ValueError(
+                            "Basic arithmetic operations require both a and b operands."
+                        )
+                    response_text = str(
+                        _run_math(operation=resolved_operation, a=a, b=b)
+                    )
                     parsed_result = _extract_float_from_text(response_text)
                 else:
                     response_text = "MathAgent returned no output."
@@ -553,7 +603,9 @@ def get_deep_agent(config: AgentConfig | None = None) -> Agent:
         )
         parsed_result = result.get("parsed_result")
         if parsed_result is None:
-            raise ValueError(f"MathAgent did not return a numeric result for operation '{operation}'.")
+            raise ValueError(
+                f"MathAgent did not return a numeric result for operation '{operation}'."
+            )
         return float(parsed_result)
 
     research_agent = get_research_agent(
@@ -653,7 +705,10 @@ def get_deep_agent(config: AgentConfig | None = None) -> Agent:
 
             if not raw_decision:
                 for message in reversed(critic_result.get("messages", [])):
-                    if not isinstance(message, dict) or message.get("role") != "assistant":
+                    if (
+                        not isinstance(message, dict)
+                        or message.get("role") != "assistant"
+                    ):
                         continue
                     content = str(message.get("content", "")).strip()
                     if not content:
@@ -778,14 +833,16 @@ def get_deep_agent(config: AgentConfig | None = None) -> Agent:
             request_math_subtask,
         ],
     )
-    setattr(supervisor_agent, "_validate_and_correct", validate_and_correct)
+    supervisor_agent._validate_and_correct = validate_and_correct
     return supervisor_agent
 
 
 _cached_deep_agent: Agent | None = None
 
 
-def get_supervisor(config: AgentConfig | None = None, force_rebuild: bool = False) -> Agent:
+def get_supervisor(
+    config: AgentConfig | None = None, force_rebuild: bool = False
+) -> Agent:
     """Get a cached or newly built supervisor agent."""
     global _cached_deep_agent
 
@@ -891,9 +948,13 @@ async def run_supervisor_with_critic(
 
         validator = getattr(supervisor, "_validate_and_correct", None)
         if callable(validator):
-            validated = await validator(latest_user_input, candidate_output, candidate_messages)
+            validated = await validator(
+                latest_user_input, candidate_output, candidate_messages
+            )
         else:
-            fallback_decision = _fallback_critic_decision(latest_user_input, candidate_messages)
+            fallback_decision = _fallback_critic_decision(
+                latest_user_input, candidate_messages
+            )
             validated = {
                 "final_output": candidate_output,
                 "messages": candidate_messages,

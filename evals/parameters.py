@@ -44,6 +44,7 @@ def _make_prompt_parameter(
 # Define scalar parameters as single-field Pydantic models.
 # The patched SDK will extract the 'value' field's schema and default.
 
+
 class PromptModificationParam(BaseModel):
     """Append-only supervisor prompt modification parameter."""
 
