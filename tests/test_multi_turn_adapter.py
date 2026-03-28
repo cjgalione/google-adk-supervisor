@@ -82,6 +82,43 @@ def test_handle_turn_routes_braintrust_queries_to_subagent(monkeypatch):
     assert any(event.get("type") == "subagent.response" for event in result.events)
 
 
+def test_handle_turn_keeps_generic_project_queries_on_supervisor(monkeypatch):
+    calls: list[dict] = []
+
+    async def fake_run_supervisor_with_critic(
+        *, supervisor, app_name, query=None, chat_payload=None
+    ):
+        calls.append(
+            {
+                "supervisor": supervisor,
+                "query": query,
+                "chat_payload": chat_payload,
+                "app_name": app_name,
+            }
+        )
+        return {
+            "final_output": "supervisor-reply",
+            "messages": [],
+            "critic_decision": {"compliant": True, "required_action": "accept"},
+            "critic_corrected": False,
+        }
+
+    monkeypatch.setattr(
+        adapter_mod, "run_supervisor_with_critic", fake_run_supervisor_with_critic
+    )
+    monkeypatch.setattr(adapter_mod, "configure_adk_tracing", lambda **_: None)
+
+    adapter = adapter_mod.RuntimeSupervisorAdapter(supervisor=object())
+    result = asyncio.run(
+        adapter.handle_turn(None, "Can you help with my project timeline?", {})
+    )
+
+    assert result.assistant_message == "supervisor-reply"
+    assert len(calls) == 1
+    assert calls[0]["chat_payload"]["input"] == "Can you help with my project timeline?"
+    assert all(event.get("type") != "subagent.response" for event in result.events)
+
+
 def test_chat_api_validates_payload_and_merges_workflow_name():
     class FakeAdapter:
         def __init__(self):

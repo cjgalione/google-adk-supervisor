@@ -9,10 +9,12 @@ from src.adapters.supervisor_adapter import RuntimeSupervisorAdapter
 AGENT_ID = "braintrust_help"
 ROUTING_HINTS = [
     "braintrust",
-    "trace",
-    "eval",
-    "dataset",
-    "project",
+    "braintrust trace",
+    "braintrust eval",
+    "braintrust dataset",
+    "braintrust project",
+    "x-bt-parent",
+    "braintrust.dev",
 ]
 
 

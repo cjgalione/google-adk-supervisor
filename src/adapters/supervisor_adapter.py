@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -298,7 +299,7 @@ class RuntimeSupervisorAdapter:
     def _matching_subagent(self, user_input: str) -> tuple[str, SubagentHandler] | None:
         lowered = user_input.lower()
         for agent_id, (routing_hints, handler) in self._subagents.items():
-            if any(hint.lower() in lowered for hint in routing_hints):
+            if any(_routing_hint_matches(lowered, hint) for hint in routing_hints):
                 return agent_id, handler
         return None
 
@@ -429,3 +430,12 @@ class RuntimeSupervisorAdapter:
     ) -> None:
         _ = description
         self._subagents[agent_id] = (list(routing_hints), handler)
+
+
+def _routing_hint_matches(user_input: str, routing_hint: str) -> bool:
+    hint = str(routing_hint or "").strip().lower()
+    if not hint:
+        return False
+    if " " in hint or "." in hint or "-" in hint:
+        return hint in user_input
+    return re.search(rf"\b{re.escape(hint)}\b", user_input) is not None
