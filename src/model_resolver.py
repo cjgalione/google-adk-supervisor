@@ -114,6 +114,10 @@ class GatewayGemini(Gemini):
 class GatewayOpenAI(BaseLlm):
     """OpenAI-compatible ADK model that routes requests through Braintrust Gateway."""
 
+    use_gateway: bool = True
+    gateway_url: str | None = None
+    gateway_api_key: str | None = None
+
     @staticmethod
     def _normalize_openai_schema(value: Any) -> Any:
         """Normalize ADK/Google schema objects into OpenAI-compatible JSON schema."""
@@ -137,7 +141,11 @@ class GatewayOpenAI(BaseLlm):
         if stream:
             raise NotImplementedError("GatewayOpenAI streaming is not implemented.")
 
-        client = make_wrapped_openai_client()
+        client = make_wrapped_openai_client(
+            use_gateway=self.use_gateway,
+            gateway_url=self.gateway_url,
+            gateway_api_key=self.gateway_api_key,
+        )
         messages: list[dict[str, Any]] = []
 
         system_instruction = llm_request.config.system_instruction
@@ -279,16 +287,27 @@ def resolve_adk_model(model_name: str, config: AgentConfig | None = None) -> Any
     # ADK Gemini client reads GOOGLE_API_KEY from environment.
     os.environ["GOOGLE_API_KEY"] = api_key
     if _is_openai_model_name(model_name):
-        return GatewayOpenAI(model=model_name)
+        return GatewayOpenAI(
+            model=model_name,
+            use_gateway=True,
+            gateway_url=_gateway_url(config),
+            gateway_api_key=api_key,
+        )
     return GatewayGemini(model=model_name, base_url=_gateway_url(config))
 
 
-def make_wrapped_openai_client() -> OpenAI:
+def make_wrapped_openai_client(
+    *,
+    use_gateway: bool | None = None,
+    gateway_url: str | None = None,
+    gateway_api_key: str | None = None,
+) -> OpenAI:
     """Build OpenAI client routed through Braintrust Gateway when enabled."""
-    if not _is_gateway_enabled():
+    gateway_enabled = use_gateway if use_gateway is not None else _is_gateway_enabled()
+    if not gateway_enabled:
         return OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    gateway_key = _gateway_api_key()
+    gateway_key = gateway_api_key or _gateway_api_key()
     if not gateway_key:
         raise RuntimeError(
             "BRAINTRUST_USE_GATEWAY is enabled, but no gateway key was found. "
@@ -297,6 +316,6 @@ def make_wrapped_openai_client() -> OpenAI:
 
     return OpenAI(
         api_key=gateway_key,
-        base_url=_gateway_url(),
+        base_url=gateway_url or _gateway_url(),
         default_headers=_gateway_logging_headers(),
     )
