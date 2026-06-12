@@ -28,9 +28,11 @@ jobs:
 
       - name: Run queries
         env:
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+          BRAINTRUST_USE_GATEWAY: "true"
+          BRAINTRUST_GATEWAY_URL: https://gateway.braintrust.dev/v1
           BRAINTRUST_PROJECT: google-adk-supervisor
+          BRAINTRUST_PROJECT_ID: 8c192115-ff7f-4095-8464-5ac8ecd50ae1
           BRAINTRUST_ORG_NAME: Braintrust Demos
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           NUM_QUESTIONS: ${{ github.event.inputs.num_questions || '100' }}
@@ -40,4 +42,4 @@ jobs:
           INTER_QUESTION_DELAY_SECONDS: 2
           TRACE_PROFILE: full
         run: |
-          uv run python scripts/run_queries.py --num-questions "$NUM_QUESTIONS"
+          uv run python scripts/run_queries.py --num-questions "$NUM_QUESTIONS" --fail-on-error

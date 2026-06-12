@@ -23,12 +23,31 @@ if str(project_root) not in sys.path:
 
 from src.config import AgentConfig
 from src.agent_graph import run_supervisor_with_critic
+from src.model_resolver import make_wrapped_openai_client
 from src.tracing import configure_adk_tracing
 
 load_dotenv()
 
-MODEL_POOL = ["gemini-2.0-flash-lite"]
-QUESTION_GENERATOR_MODEL = "gemini-2.0-flash-lite"
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_csv(name: str, default: list[str]) -> list[str]:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    values = [value.strip() for value in raw.split(",") if value.strip()]
+    return values or default
+
+
+MODEL_POOL = _env_csv("MODEL_POOL", ["gemini-2.0-flash-lite"])
+QUESTION_GENERATOR_MODEL = (
+    os.environ.get("QUESTION_GENERATOR_MODEL", MODEL_POOL[0]).strip() or MODEL_POOL[0]
+)
 
 QUESTION_BANK = [
     "What is 37 * 24?",
@@ -87,6 +106,17 @@ def _is_hard_quota_exhausted(exc: Exception) -> bool:
     return "generaterequestsperday" in text or "limit: 0" in text
 
 
+def _is_auth_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return (
+        "api key expired" in text
+        or "invalid api key" in text
+        or "authentication" in text
+        or "unauthorized" in text
+        or "401" in text
+    )
+
+
 def _retry_delay_seconds(exc: Exception) -> float | None:
     text = str(exc)
 
@@ -101,14 +131,35 @@ def _retry_delay_seconds(exc: Exception) -> float | None:
     return None
 
 
+def _generate_model_text(prompt: str) -> str:
+    if _env_bool("BRAINTRUST_USE_GATEWAY", False):
+        client = make_wrapped_openai_client()
+        response = client.chat.completions.create(
+            model=QUESTION_GENERATOR_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.choices[0].message.content or ""
+
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "Missing GOOGLE_API_KEY in environment. To run without a Google API key, "
+            "set BRAINTRUST_USE_GATEWAY=true and provide BRAINTRUST_API_KEY or "
+            "BRAINTRUST_GATEWAY_API_KEY."
+        )
+
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=QUESTION_GENERATOR_MODEL,
+        contents=prompt,
+    )
+    return response.text or ""
+
+
 def generate_questions(num_questions: int, seed: Optional[int] = None) -> list[str]:
     """Generate realistic, varied questions with Gemini."""
     rng = random.Random(seed)
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        raise RuntimeError("Missing GOOGLE_API_KEY in environment")
 
-    client = genai.Client(api_key=api_key)
     prompt = f"""Generate exactly {num_questions} realistic user questions that test an AI multi-agent system.
 
 Create a diverse mix of:
@@ -123,11 +174,7 @@ Output requirements:
 - Keep each question under 200 characters
 """
     try:
-        response = client.models.generate_content(
-            model=QUESTION_GENERATOR_MODEL,
-            contents=prompt,
-        )
-        text = (response.text or "").strip()
+        text = _generate_model_text(prompt).strip()
         questions = _extract_json_array(text)
         rng.shuffle(questions)
         return questions[:num_questions]
@@ -136,20 +183,14 @@ Output requirements:
 
 
 def _quota_preflight_ok() -> tuple[bool, str]:
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        return False, "Missing GOOGLE_API_KEY in environment"
-
-    client = genai.Client(api_key=api_key)
     try:
-        client.models.generate_content(
-            model=QUESTION_GENERATOR_MODEL,
-            contents="Reply with exactly: OK",
-        )
+        _generate_model_text("Reply with exactly: OK")
         return True, ""
     except Exception as exc:
         if _is_hard_quota_exhausted(exc):
             return False, str(exc)
+        if _is_auth_error(exc):
+            raise RuntimeError(f"Credential preflight failed: {exc}") from exc
         return True, ""
 
 

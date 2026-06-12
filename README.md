@@ -30,7 +30,8 @@ cp .env.example .env
 
 Required keys:
 
-- `GOOGLE_API_KEY`
+- `GOOGLE_API_KEY` for direct Gemini calls, or `BRAINTRUST_USE_GATEWAY=true`
+  with a Braintrust key that can use the configured Gemini provider
 - `TAVILY_API_KEY`
 - `BRAINTRUST_API_KEY` (if tracing/evals)
 - `OPENAI_API_KEY` (used by judge scorers)
