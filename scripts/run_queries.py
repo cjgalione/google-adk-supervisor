@@ -204,7 +204,7 @@ async def run_question(
     from src.agent_graph import get_supervisor
 
     selected_model = random.choice(MODEL_POOL)
-    config = AgentConfig(
+    config = AgentConfig.from_env(
         supervisor_model=selected_model,
         research_model=selected_model,
         math_model=selected_model,
