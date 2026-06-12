@@ -15,9 +15,9 @@ def test_resolve_adk_model_returns_gemini_with_gateway_url_when_enabled():
         gateway_api_key="test-key",
     )
     model = resolve_adk_model("gemini-2.0-flash-lite", config)
-    assert model.__class__.__name__ == "GatewayGemini"
-    assert getattr(model, "model") == "gemini-2.0-flash-lite"
-    assert getattr(model, "base_url") == "https://gateway.braintrust.dev/v1"
+    assert model.__class__.__name__ == "LiteLlm"
+    assert getattr(model, "model") == "openai/gemini-2.0-flash-lite"
+    assert getattr(model, "api_base") == "https://gateway.braintrust.dev/v1"
 
 
 def test_resolve_adk_model_raises_if_gateway_key_missing():
@@ -49,6 +49,6 @@ def test_resolve_adk_model_includes_gateway_logging_headers(monkeypatch):
         gateway_api_key="test-key",
     )
     model = resolve_adk_model("gemini-2.0-flash-lite", config)
-    headers = model._tracking_headers()
+    headers = getattr(model, "extra_headers")
     assert headers["x-bt-parent"] == "project_name:google-adk-supervisor"
     assert headers["x-bt-project-name"] == "google-adk-supervisor"

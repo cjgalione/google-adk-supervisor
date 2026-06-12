@@ -9,3 +9,4 @@ autoevals
 modal
 fastapi[standard]
 pint
+litellm

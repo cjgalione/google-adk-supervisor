@@ -74,9 +74,9 @@ Runtime notes:
 ## Braintrust AI Gateway
 
 When `BRAINTRUST_USE_GATEWAY=true`, this demo routes ADK Gemini model calls
-through Braintrust AI Gateway by constructing `Gemini(..., base_url=...)`
-model objects at runtime. The same toggle also routes the eval judge OpenAI
-client through the gateway endpoint.
+through Braintrust AI Gateway by constructing ADK `LiteLlm` model objects
+against the Gateway's OpenAI-compatible endpoint. The same toggle also routes
+the eval judge OpenAI client through the gateway endpoint.
 When `BRAINTRUST_PROJECT_ID` or `BRAINTRUST_PROJECT` is set, gateway-mode
 clients include explicit Braintrust attribution headers (for example,
 `x-bt-parent`) so gateway logs are tied to the expected project.

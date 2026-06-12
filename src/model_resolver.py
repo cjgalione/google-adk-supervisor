@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from google.adk.models.google_llm import Gemini
 from openai import OpenAI
 
 from src.config import AgentConfig
@@ -47,17 +46,8 @@ def _gateway_logging_headers() -> dict[str, str]:
     return headers
 
 
-class GatewayGemini(Gemini):
-    """Gemini model wrapper that injects Braintrust gateway project headers."""
-
-    def _tracking_headers(self) -> dict[str, str]:  # type: ignore[override]
-        headers = super()._tracking_headers()
-        headers.update(_gateway_logging_headers())
-        return headers
-
-
 def resolve_adk_model(model_name: str, config: AgentConfig | None = None) -> Any:
-    """Return either a raw model string or Gateway-routed Gemini model object."""
+    """Return either a raw model string or a Gateway-routed ADK model object."""
     if not _is_gateway_enabled(config):
         return model_name
 
@@ -68,9 +58,14 @@ def resolve_adk_model(model_name: str, config: AgentConfig | None = None) -> Any
             "Set BRAINTRUST_GATEWAY_API_KEY or BRAINTRUST_API_KEY."
         )
 
-    # ADK Gemini client reads GOOGLE_API_KEY from environment.
-    os.environ["GOOGLE_API_KEY"] = api_key
-    return GatewayGemini(model=model_name, base_url=_gateway_url(config))
+    from google.adk.models.lite_llm import LiteLlm
+
+    return LiteLlm(
+        model=f"openai/{model_name}",
+        api_key=api_key,
+        api_base=_gateway_url(config),
+        extra_headers=_gateway_logging_headers(),
+    )
 
 
 def make_wrapped_openai_client() -> OpenAI:
