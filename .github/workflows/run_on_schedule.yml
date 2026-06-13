@@ -36,6 +36,8 @@ jobs:
           BRAINTRUST_ORG_NAME: Braintrust Demos
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           NUM_QUESTIONS: ${{ github.event.inputs.num_questions || '100' }}
+          MODEL_POOL: gpt-4o-mini
+          QUESTION_GENERATOR_MODEL: gpt-4o-mini
           CONCURRENCY: 1
           MAX_RETRIES: 3
           BASE_RETRY_SECONDS: 15
