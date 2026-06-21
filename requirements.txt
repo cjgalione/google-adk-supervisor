@@ -2,6 +2,7 @@ google-adk
 braintrust-adk
 openai
 tavily-python
+exa-py==2.14.0
 python-dotenv
 braintrust
 rich
