@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import math
 import re
-import ast
 from typing import Any
 
 from braintrust import SpanTypeAttribute, start_span
@@ -18,7 +18,6 @@ from src.config import AgentConfig
 from src.helpers import run_adk_agent
 from src.model_resolver import resolve_adk_model
 
-
 _MATH_OPS = {
     "add": add,
     "subtract": subtract,
@@ -27,6 +26,12 @@ _MATH_OPS = {
 }
 
 _CRITIC_ACTIONS = {"accept", "delegate_research", "delegate_math", "retry_with_instruction"}
+_VALIDATE_AND_CORRECT_ATTR = "_validate_and_correct"
+_RECOVER_MATH_DELEGATION_ERROR_ATTR = "_recover_math_delegation_error"
+
+
+def _is_missing_math_task_error(exc: Exception) -> bool:
+    return "provide a non-empty math_task" in str(exc).lower()
 
 
 def _parse_number_token(token: str) -> float | None:
@@ -596,6 +601,8 @@ def get_deep_agent(config: AgentConfig | None = None) -> Agent:
         IMPORTANT:
         - For symbolic math, pass the full expression/question in `math_task`
           (e.g., "derivative of x^2"), not only an operator word.
+        - For arithmetic, pass either `math_task` as the full user math request
+          or `operation` plus operands `a` and `b`.
         - `operation` is retained as a backward-compatible alias.
         """
         result = await _run_math_handoff(
@@ -608,6 +615,26 @@ def get_deep_agent(config: AgentConfig | None = None) -> Agent:
             app_name="google-adk-supervisor-delegate-math",
         )
         return str(result.get("returned_response", ""))
+
+    async def recover_math_delegation_error(query: str, exc: Exception) -> dict[str, Any]:
+        """Recover from malformed math handoff tool calls using the original query."""
+        result = await _run_math_handoff(
+            math_task=query,
+            result_mode="explanatory",
+            mode="delegate",
+            app_name="google-adk-supervisor-delegate-math-recovery",
+        )
+        final_output = str(result.get("returned_response", "")).strip()
+        messages = [
+            {"role": "user", "content": query},
+            {
+                "role": "system",
+                "content": f"math delegation recovery: {_is_missing_math_task_error(exc)}",
+            },
+            *result.get("messages", []),
+            {"role": "system", "content": "handoff marker: handoff [MathAgent]"},
+        ]
+        return {"final_output": final_output, "messages": messages}
 
     async def _run_critic_decision(
         *,
@@ -778,7 +805,12 @@ def get_deep_agent(config: AgentConfig | None = None) -> Agent:
             request_math_subtask,
         ],
     )
-    setattr(supervisor_agent, "_validate_and_correct", validate_and_correct)
+    setattr(supervisor_agent, _VALIDATE_AND_CORRECT_ATTR, validate_and_correct)
+    setattr(
+        supervisor_agent,
+        _RECOVER_MATH_DELEGATION_ERROR_ATTR,
+        recover_math_delegation_error,
+    )
     return supervisor_agent
 
 
@@ -809,15 +841,26 @@ async def run_supervisor_with_critic(
         type=SpanTypeAttribute.TASK,
         input={"query": query, "app_name": app_name},
     ) as root_span:
-        candidate = await run_adk_agent(
-            agent=supervisor,
-            query=query,
-            app_name=app_name,
-        )
+        try:
+            candidate = await run_adk_agent(
+                agent=supervisor,
+                query=query,
+                app_name=app_name,
+            )
+        except Exception as exc:
+            recover_math = getattr(supervisor, _RECOVER_MATH_DELEGATION_ERROR_ATTR, None)
+            if (
+                callable(recover_math)
+                and _is_missing_math_task_error(exc)
+                and _query_needs_math_handoff(query)
+            ):
+                candidate = await recover_math(query, exc)
+            else:
+                raise
         candidate_output = str(candidate.get("final_output", "")).strip()
         candidate_messages = candidate.get("messages", [])
 
-        validator = getattr(supervisor, "_validate_and_correct", None)
+        validator = getattr(supervisor, _VALIDATE_AND_CORRECT_ATTR, None)
         if callable(validator):
             validated = await validator(query, candidate_output, candidate_messages)
         else:
