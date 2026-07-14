@@ -40,7 +40,7 @@ async def _run_chat() -> None:
             _set_if_undefined("BRAINTRUST_GATEWAY_API_KEY")
     else:
         _set_if_undefined("GOOGLE_API_KEY")
-    _set_if_undefined("TAVILY_API_KEY")
+    _set_if_undefined("EXA_API_KEY")
 
     if os.environ.get("BRAINTRUST_API_KEY"):
         configure_adk_tracing(

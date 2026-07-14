@@ -25,6 +25,26 @@ class _FailingTavilyClient:
         raise RuntimeError("Tavily quota exhausted")
 
 
+class _WorkingTavilyClient:
+    def search(self, **kwargs):
+        assert kwargs["query"] == "latest AI safety news"
+        assert kwargs["max_results"] == 2
+        return {
+            "results": [
+                {
+                    "title": "Tavily safety update",
+                    "url": "https://example.com/tavily-safety",
+                    "content": "A Tavily fallback excerpt.",
+                }
+            ]
+        }
+
+
+class _FailingExaClient:
+    def search(self, query, **kwargs):
+        raise RuntimeError("Exa unavailable")
+
+
 class _WorkingExaClient:
     def search(self, query, **kwargs):
         assert query == "latest AI safety news"
@@ -42,11 +62,12 @@ class _WorkingExaClient:
         )
 
 
-def test_tavily_search_falls_back_to_exa(monkeypatch):
+def test_tavily_search_prefers_exa(monkeypatch):
     monkeypatch.setenv("EXA_API_KEY", "test-key")
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
     monkeypatch.setattr(research_agent, "start_span", lambda **kwargs: _NoopSpan())
-    monkeypatch.setattr(research_agent, "_get_tavily_client", lambda: _FailingTavilyClient())
     monkeypatch.setattr(research_agent, "_get_exa_client", lambda: _WorkingExaClient())
+    monkeypatch.setattr(research_agent, "_get_tavily_client", lambda: _FailingTavilyClient())
 
     output = research_agent.tavily_search("latest AI safety news", max_results=2)
 
@@ -55,10 +76,44 @@ def test_tavily_search_falls_back_to_exa(monkeypatch):
     assert "A concise highlighted excerpt." in output
 
 
-def test_tavily_search_raises_without_exa_key(monkeypatch):
-    monkeypatch.delenv("EXA_API_KEY", raising=False)
+def test_tavily_search_falls_back_to_tavily(monkeypatch):
+    monkeypatch.setenv("EXA_API_KEY", "test-key")
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
     monkeypatch.setattr(research_agent, "start_span", lambda **kwargs: _NoopSpan())
-    monkeypatch.setattr(research_agent, "_get_tavily_client", lambda: _FailingTavilyClient())
+    monkeypatch.setattr(research_agent, "_get_exa_client", lambda: _FailingExaClient())
+    monkeypatch.setattr(research_agent, "_get_tavily_client", lambda: _WorkingTavilyClient())
 
-    with pytest.raises(RuntimeError, match="Tavily quota exhausted"):
+    output = research_agent.tavily_search("latest AI safety news", max_results=2)
+
+    assert "Tavily safety update" in output
+    assert "https://example.com/tavily-safety" in output
+
+
+def test_tavily_search_falls_back_to_you(monkeypatch):
+    monkeypatch.setenv("EXA_API_KEY", "test-key")
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
+    monkeypatch.setenv("YDC_API_KEY", "test-key")
+    monkeypatch.setattr(research_agent, "start_span", lambda **kwargs: _NoopSpan())
+    monkeypatch.setattr(research_agent, "_get_exa_client", lambda: _FailingExaClient())
+    monkeypatch.setattr(research_agent, "_get_tavily_client", lambda: _FailingTavilyClient())
+    monkeypatch.setattr(
+        research_agent,
+        "_search_you",
+        lambda query, max_results: "You.com fallback result",
+    )
+
+    output = research_agent.tavily_search("latest AI safety news", max_results=2)
+
+    assert output == "You.com fallback result"
+
+
+def test_tavily_search_raises_without_configured_provider(monkeypatch):
+    monkeypatch.delenv("EXA_API_KEY", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("YDC_API_KEY", raising=False)
+    monkeypatch.delenv("YOU_API_KEY", raising=False)
+    monkeypatch.delenv("YOUCOM_API_KEY", raising=False)
+    monkeypatch.setattr(research_agent, "start_span", lambda **kwargs: _NoopSpan())
+
+    with pytest.raises(RuntimeError, match="EXA_API_KEY is not set"):
         research_agent.tavily_search("latest AI safety news", max_results=2)

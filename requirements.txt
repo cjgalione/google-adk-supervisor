@@ -3,6 +3,7 @@ braintrust-adk
 openai
 tavily-python
 exa-py==2.14.0
+orjson
 python-dotenv
 braintrust
 rich

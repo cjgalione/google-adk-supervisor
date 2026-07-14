@@ -2,7 +2,7 @@
 
 A multi-agent supervisor system built with Google ADK that routes user tasks between:
 
-- `ResearchAgent` (Tavily-backed web search)
+- `ResearchAgent` (Exa-first web search with Tavily/You.com fallbacks)
 - `MathAgent` (arithmetic tools)
 - `Supervisor Agent` (routing + synthesis)
 - `CriticAgent` (post-response delegation/tool-use validator)
@@ -32,7 +32,8 @@ Required keys:
 
 - `GOOGLE_API_KEY` for direct Gemini calls, or `BRAINTRUST_USE_GATEWAY=true`
   with a Braintrust key that can use the configured Gemini provider
-- `TAVILY_API_KEY`
+- `EXA_API_KEY` for primary web search
+- Optional: `TAVILY_API_KEY` or `YDC_API_KEY` for fallback web search
 - `BRAINTRUST_API_KEY` (if tracing/evals)
 - `OPENAI_API_KEY` (used by judge scorers)
 - Optional: `TRACE_PROFILE=full|lean` (default `full`)
