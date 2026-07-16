@@ -4,6 +4,17 @@ import os
 
 import modal
 
+
+def _modal_min_containers() -> int:
+    value = os.environ.get("MODAL_MIN_CONTAINERS", "0")
+    try:
+        count = int(value)
+    except ValueError as exc:
+        raise RuntimeError("MODAL_MIN_CONTAINERS must be a non-negative integer") from exc
+    if count < 0:
+        raise RuntimeError("MODAL_MIN_CONTAINERS must be a non-negative integer")
+    return count
+
 CORS_ALLOWED_HEADERS = [
     "Authorization",
     "Content-Type",
@@ -49,8 +60,8 @@ _secrets = [modal.Secret.from_dotenv()]
 
 @app.function(
     secrets=_secrets,
-    # Keep the server warm with at least 1 instance
-    min_containers=1,
+    # Remote eval is opt-in; deployments scale to zero unless explicitly warmed.
+    min_containers=_modal_min_containers(),
     # Timeout for long-running evals
     timeout=3600,
 )

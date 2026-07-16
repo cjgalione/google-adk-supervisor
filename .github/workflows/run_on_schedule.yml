@@ -1,7 +1,7 @@
-name: Daily modal queries
+name: Daily supervisor smoke
 on:
   schedule:
-    - cron: "0 6 * * *"  # daily at 06:00 UTC
+    - cron: "7 6 * * *"
   workflow_dispatch:
     inputs:
       num_questions:
@@ -9,9 +9,18 @@ on:
         required: false
         default: "100"
 
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: daily-supervisor-smoke-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   run-queries:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -23,28 +32,134 @@ jobs:
         with:
             python-version-file: ".python-version"
 
+      - name: Validate required secrets
+        env:
+          BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          YDC_API_KEY: ${{ secrets.YDC_API_KEY }}
+          BRAINTRUST_USE_GATEWAY: "true"
+          BRAINTRUST_GATEWAY_URL: "https://gateway.braintrust.dev/v1"
+          BRAINTRUST_PROJECT: "google-adk-supervisor"
+          BRAINTRUST_PROJECT_ID: "8c192115-ff7f-4095-8464-5ac8ecd50ae1"
+          BRAINTRUST_ORG_NAME: "Braintrust Demos"
+          SEARCH_PROVIDER: "exa"
+          MODEL_POOL: "gpt-4o-mini"
+          QUESTION_GENERATOR_MODEL: "gpt-4o-mini"
+          CONCURRENCY: "1"
+          MAX_RETRIES: "3"
+          BASE_RETRY_SECONDS: "15"
+          INTER_QUESTION_DELAY_SECONDS: "2"
+          TRACE_PROFILE: "full"
+        run: |
+          missing=0
+          for name in BRAINTRUST_API_KEY EXA_API_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not set"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
       - name: Install dependencies with uv
         run: uv pip install -r requirements.txt --system
+
+      - name: Preflight providers
+        env:
+          BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          YDC_API_KEY: ${{ secrets.YDC_API_KEY }}
+          BRAINTRUST_USE_GATEWAY: "true"
+          BRAINTRUST_GATEWAY_URL: "https://gateway.braintrust.dev/v1"
+          BRAINTRUST_PROJECT: "google-adk-supervisor"
+          BRAINTRUST_PROJECT_ID: "8c192115-ff7f-4095-8464-5ac8ecd50ae1"
+          BRAINTRUST_ORG_NAME: "Braintrust Demos"
+          SEARCH_PROVIDER: "exa"
+          MODEL_POOL: "gpt-4o-mini"
+          QUESTION_GENERATOR_MODEL: "gpt-4o-mini"
+          CONCURRENCY: "1"
+          MAX_RETRIES: "3"
+          BASE_RETRY_SECONDS: "15"
+          INTER_QUESTION_DELAY_SECONDS: "2"
+          TRACE_PROFILE: "full"
+          QUERY_SUMMARY_PATH: daily-summary.json
+        run: |
+          uv run python scripts/run_queries.py --preflight-only || { printf '{"preflight":{"status":"failed"}}\n' > daily-summary.json; exit 1; }
 
       - name: Run queries
         env:
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
-          BRAINTRUST_USE_GATEWAY: "true"
-          BRAINTRUST_GATEWAY_URL: https://gateway.braintrust.dev/v1
-          BRAINTRUST_PROJECT: google-adk-supervisor
-          BRAINTRUST_PROJECT_ID: 8c192115-ff7f-4095-8464-5ac8ecd50ae1
-          BRAINTRUST_ORG_NAME: Braintrust Demos
-          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           YDC_API_KEY: ${{ secrets.YDC_API_KEY }}
-          SEARCH_PROVIDER: exa
-          NUM_QUESTIONS: ${{ github.event.inputs.num_questions || '100' }}
-          MODEL_POOL: gpt-4o-mini
-          QUESTION_GENERATOR_MODEL: gpt-4o-mini
-          CONCURRENCY: 1
-          MAX_RETRIES: 3
-          BASE_RETRY_SECONDS: 15
-          INTER_QUESTION_DELAY_SECONDS: 2
-          TRACE_PROFILE: full
+          BRAINTRUST_USE_GATEWAY: "true"
+          BRAINTRUST_GATEWAY_URL: "https://gateway.braintrust.dev/v1"
+          BRAINTRUST_PROJECT: "google-adk-supervisor"
+          BRAINTRUST_PROJECT_ID: "8c192115-ff7f-4095-8464-5ac8ecd50ae1"
+          BRAINTRUST_ORG_NAME: "Braintrust Demos"
+          SEARCH_PROVIDER: "exa"
+          MODEL_POOL: "gpt-4o-mini"
+          QUESTION_GENERATOR_MODEL: "gpt-4o-mini"
+          CONCURRENCY: "1"
+          MAX_RETRIES: "3"
+          BASE_RETRY_SECONDS: "15"
+          INTER_QUESTION_DELAY_SECONDS: "2"
+          TRACE_PROFILE: "full"
+          NUM_QUESTIONS: ${{ github.event_name == 'schedule' && '10' || github.event.inputs.num_questions || '100' }}
+          QUERY_SUMMARY_PATH: daily-summary.json
         run: |
-          uv run python scripts/run_queries.py --num-questions "$NUM_QUESTIONS" --fail-on-error
+          uv run python scripts/run_queries.py --num-questions "$NUM_QUESTIONS" --question-source bank --seed 0 --skip-preflight --fail-on-error
+
+      - name: Upload daily summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-supervisor-summary
+          path: daily-summary.json
+          if-no-files-found: warn
+
+  notify-failure:
+    needs: run-queries
+    if: ${{ always() && github.event_name == 'schedule' && needs.run-queries.result == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const label = 'daily-run-failure';
+            const title = 'Daily supervisor smoke is failing';
+            const body = `Scheduled run failed: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const labels = await github.paginate(github.rest.issues.listLabelsForRepo, {
+              owner: context.repo.owner, repo: context.repo.repo, per_page: 100,
+            });
+            if (!labels.some((item) => item.name === label)) {
+              await github.rest.issues.createLabel({ owner: context.repo.owner, repo: context.repo.repo, name: label, color: 'b60205' });
+            }
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner, repo: context.repo.repo, state: 'open', labels: label, per_page: 100,
+            });
+            const existing = issues.find((item) => item.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: existing.number, body });
+            } else {
+              await github.rest.issues.create({ owner: context.repo.owner, repo: context.repo.repo, title, body, labels: [label] });
+            }
+
+  notify-recovery:
+    needs: run-queries
+    if: ${{ always() && github.event_name == 'schedule' && needs.run-queries.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const label = 'daily-run-failure';
+            const title = 'Daily supervisor smoke is failing';
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner, repo: context.repo.repo, state: 'open', labels: label, per_page: 100,
+            });
+            for (const issue of issues.filter((item) => item.title === title)) {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number, body: `Recovered: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}` });
+              await github.rest.issues.update({ owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number, state: 'closed' });
+            }

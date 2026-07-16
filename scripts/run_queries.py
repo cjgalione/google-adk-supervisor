@@ -8,6 +8,7 @@ import os
 import random
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -111,6 +112,7 @@ def _is_auth_error(exc: Exception) -> bool:
     return (
         "api key expired" in text
         or "invalid api key" in text
+        or "incorrect api key" in text
         or "authentication" in text
         or "unauthorized" in text
         or "401" in text
@@ -183,15 +185,66 @@ Output requirements:
 
 
 def _quota_preflight_ok() -> tuple[bool, str]:
-    try:
-        _generate_model_text("Reply with exactly: OK")
-        return True, ""
-    except Exception as exc:
-        if _is_hard_quota_exhausted(exc):
-            return False, str(exc)
-        if _is_auth_error(exc):
-            raise RuntimeError(f"Credential preflight failed: {exc}") from exc
-        return True, ""
+    return True, ""
+
+
+def _preflight_failure_category(exc: Exception) -> str:
+    if _is_auth_error(exc):
+        return "authentication"
+    if _is_hard_quota_exhausted(exc):
+        return "quota"
+    if _is_resource_exhausted_error(exc):
+        return "transient"
+    return "provider"
+
+
+def _run_preflight() -> dict[str, str]:
+    missing = [name for name in ("BRAINTRUST_API_KEY", "EXA_API_KEY") if not os.environ.get(name)]
+    if missing:
+        raise RuntimeError(f"Missing required environment variable(s): {', '.join(missing)}")
+
+    from src.agents.research_agent import _search_exa
+
+    for attempt in range(1, 4):
+        try:
+            _generate_model_text("Reply with exactly: OK")
+            _search_exa(query="Braintrust", max_results=1)
+            return {"model": "ok", "exa": "ok"}
+        except Exception as exc:
+            category = _preflight_failure_category(exc)
+            if category == "transient" and attempt < 3:
+                time.sleep(2**attempt)
+                continue
+            # Do not include provider exceptions: some SDKs echo request headers in errors.
+            raise RuntimeError(f"Provider preflight failed ({category}).") from exc
+
+    raise RuntimeError("Provider preflight failed (transient).")
+
+
+def _write_summary(
+    path: str | None,
+    *,
+    preflight: dict[str, str],
+    total: int,
+    successes: int,
+    failures: int,
+) -> None:
+    if not path:
+        return
+    summary_path = Path(path)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text(
+        json.dumps(
+            {
+                "preflight": preflight,
+                "total": total,
+                "successes": successes,
+                "failures": failures,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
 
 async def run_question(
@@ -243,19 +296,30 @@ async def run_question(
 
 
 async def main_async(args: argparse.Namespace) -> None:
-    if args.quota_preflight:
-        ok, reason = _quota_preflight_ok()
-        if not ok:
-            print("Hard quota appears exhausted; skipping this batch run.")
-            print(reason)
-            return
+    preflight = {} if args.skip_preflight else _run_preflight()
+    if args.preflight_only:
+        _write_summary(
+            args.summary_path,
+            preflight=preflight,
+            total=0,
+            successes=0,
+            failures=0,
+        )
+        print("Provider preflight passed.")
+        return
 
     num_questions = args.num_questions if args.num_questions is not None else random.randint(1, 100)
-    questions = generate_questions(num_questions=num_questions, seed=args.seed)
+    rng = random.Random(args.seed)
+    questions = (
+        _fallback_questions(num_questions=num_questions, rng=rng)
+        if args.question_source == "bank"
+        else generate_questions(num_questions=num_questions, seed=args.seed)
+    )
 
     print(f"Generated {len(questions)} questions")
     print(f"Running with concurrency={args.concurrency}")
     print(f"Model pool: {', '.join(MODEL_POOL)}")
+    print(f"Question source: {args.question_source}")
     print("=" * 80)
 
     successes = 0
@@ -293,6 +357,13 @@ async def main_async(args: argparse.Namespace) -> None:
     print("=" * 80)
     print(f"Completed. successes={successes} failures={failures}")
     print("=" * 80)
+    _write_summary(
+        args.summary_path,
+        preflight=preflight,
+        total=len(questions),
+        successes=successes,
+        failures=failures,
+    )
 
     if args.fail_on_error and failures > 0:
         raise SystemExit(1)
@@ -348,6 +419,27 @@ def main() -> None:
         action=argparse.BooleanOptionalAction,
         default=os.environ.get("QUOTA_PREFLIGHT", "1") != "0",
         help="Run a lightweight Gemini call before batch and skip run if daily quota is exhausted",
+    )
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="Verify the configured model and Exa adapter without running questions",
+    )
+    parser.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="Skip provider preflight after a separate successful preflight step",
+    )
+    parser.add_argument(
+        "--question-source",
+        choices=("generated", "bank"),
+        default=os.environ.get("QUESTION_SOURCE", "generated"),
+        help="Question source: generated or deterministic bank",
+    )
+    parser.add_argument(
+        "--summary-path",
+        default=os.environ.get("QUERY_SUMMARY_PATH", ""),
+        help="Optional path for a JSON query result summary artifact",
     )
     args = parser.parse_args()
 
