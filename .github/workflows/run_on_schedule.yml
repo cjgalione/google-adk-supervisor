@@ -41,7 +41,7 @@ jobs:
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           YDC_API_KEY: ${{ secrets.YDC_API_KEY }}
           BRAINTRUST_USE_GATEWAY: "true"
-          BRAINTRUST_GATEWAY_URL: "https://gateway.braintrust.dev/v1"
+          BRAINTRUST_GATEWAY_URL: "https://gateway.braintrust.dev"
           BRAINTRUST_PROJECT: "google-adk-supervisor"
           BRAINTRUST_PROJECT_ID: "8c192115-ff7f-4095-8464-5ac8ecd50ae1"
           BRAINTRUST_ORG_NAME: "Braintrust Demos"
@@ -73,7 +73,7 @@ jobs:
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           YDC_API_KEY: ${{ secrets.YDC_API_KEY }}
           BRAINTRUST_USE_GATEWAY: "true"
-          BRAINTRUST_GATEWAY_URL: "https://gateway.braintrust.dev/v1"
+          BRAINTRUST_GATEWAY_URL: "https://gateway.braintrust.dev"
           BRAINTRUST_PROJECT: "google-adk-supervisor"
           BRAINTRUST_PROJECT_ID: "8c192115-ff7f-4095-8464-5ac8ecd50ae1"
           BRAINTRUST_ORG_NAME: "Braintrust Demos"
@@ -96,7 +96,7 @@ jobs:
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           YDC_API_KEY: ${{ secrets.YDC_API_KEY }}
           BRAINTRUST_USE_GATEWAY: "true"
-          BRAINTRUST_GATEWAY_URL: "https://gateway.braintrust.dev/v1"
+          BRAINTRUST_GATEWAY_URL: "https://gateway.braintrust.dev"
           BRAINTRUST_PROJECT: "google-adk-supervisor"
           BRAINTRUST_PROJECT_ID: "8c192115-ff7f-4095-8464-5ac8ecd50ae1"
           BRAINTRUST_ORG_NAME: "Braintrust Demos"

@@ -84,7 +84,7 @@ DEFAULT_MATH_AGENT_PROMPT = (
 DEFAULT_SUPERVISOR_MODEL = "gemini-2.0-flash-lite"
 DEFAULT_RESEARCH_MODEL = "gemini-2.0-flash-lite"
 DEFAULT_MATH_MODEL = "gemini-2.0-flash-lite"
-DEFAULT_BRAINTRUST_GATEWAY_URL = "https://gateway.braintrust.dev/v1"
+DEFAULT_BRAINTRUST_GATEWAY_URL = "https://gateway.braintrust.dev"
 
 
 def _env_bool(name: str, default: bool = False) -> bool:

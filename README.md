@@ -41,7 +41,7 @@ Required keys:
   - `lean`: explicit app spans only (invocation, handoff, llm_response_generation, tool_routing_decision)
 - Optional: Braintrust AI Gateway
   - `BRAINTRUST_USE_GATEWAY=true`
-  - `BRAINTRUST_GATEWAY_URL=https://gateway.braintrust.dev/v1`
+  - `BRAINTRUST_GATEWAY_URL=https://gateway.braintrust.dev`
   - `BRAINTRUST_GATEWAY_API_KEY` (falls back to `BRAINTRUST_API_KEY`)
 
 3. Run local chat:

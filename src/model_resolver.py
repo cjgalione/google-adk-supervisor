@@ -20,7 +20,7 @@ def _is_gateway_enabled(config: AgentConfig | None = None) -> bool:
 def _gateway_url(config: AgentConfig | None = None) -> str:
     if config and config.gateway_url:
         return config.gateway_url
-    return os.environ.get("BRAINTRUST_GATEWAY_URL", "https://gateway.braintrust.dev/v1")
+    return os.environ.get("BRAINTRUST_GATEWAY_URL", "https://gateway.braintrust.dev")
 
 
 def _gateway_api_key(config: AgentConfig | None = None) -> str | None:
